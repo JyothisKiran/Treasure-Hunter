@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/8bit/input";
 import { Label } from "@/components/ui/8bit/label";
 
 import "@/components/ui/8bit/styles/retro.css";
+import { useState } from "react";
 
 interface CardProps extends React.ComponentPropsWithoutRef<"div"> {
   title1: string;
@@ -20,6 +21,7 @@ interface CardProps extends React.ComponentPropsWithoutRef<"div"> {
   navLink?: () => void;
   formButtonText?: string;
   confirmPassword?: boolean;
+  handleSubmit: (formData:any) => void;
 }
 
 export function LoginForm({
@@ -30,8 +32,29 @@ export function LoginForm({
   navLink,  
   confirmPassword,
   formButtonText,
+  handleSubmit,
   ...props
 }: CardProps) {
+  const [formData, setFormData] = useState({
+    email: "",
+    password: "",
+    confirmPassword: "",
+  });
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    console.log(e,'--');
+    
+    const { id, value } = e.target;
+    setFormData((prevData) => ({
+      ...prevData,
+      [id]: value,
+    }));
+  }
+
+  const handleFormSubmit = () => {
+    handleSubmit(formData)
+  }
+
+  
   return (
     <div className={cn("flex w-full max-w-sm flex-col gap-5", className)} {...props}>
       <Card>
@@ -77,21 +100,23 @@ export function LoginForm({
                     type="email"
                     placeholder="m@example.com"
                     required
+                    value={formData.email}
+                    onChange={(e) => handleInputChange(e)}
                   />
                 </div>
                 <div className="grid gap-2">
                   <div className="flex items-center">
                     <Label htmlFor="password">Password</Label>
                   </div>
-                  <Input id="password" type="password" required />
+                  <Input id="password" type="password" required  value={formData.password} onChange={(e) => handleInputChange(e)}/>
                 </div>
                 {confirmPassword && (<div className="grid gap-2">
                   <div className="flex items-center">
-                    <Label htmlFor="password">Confirm password</Label>
+                    <Label htmlFor="confirmPassword">Confirm password</Label>
                   </div>
-                  <Input id="password" type="password" required />
+                  <Input id="confirmPassword" type="password" required value={formData.confirmPassword} onChange={(e) => handleInputChange(e)}/>
                 </div>)}
-                <Button type="submit" className="w-full">
+                <Button type="button" className="w-full" onClick={handleFormSubmit}>
                   {formButtonText}
                 </Button>
               </div>
