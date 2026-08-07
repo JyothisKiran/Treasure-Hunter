@@ -3,6 +3,7 @@ import LoginPage from "./domains/auth/Login";
 import SignUp from "./domains/auth/Signup";
 import AppLayout from "./layouts/AppLayout";
 import { BrowserRouter, Navigate, Route, Routes, useNavigate } from "react-router-dom";
+import LandingPage from "./routes/LandingPage";
 
 function HomePage() {
   const navigate = useNavigate();
@@ -32,6 +33,7 @@ export default function App() {
           <Route path="/" element={<HomePage />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/signup" element={<SignUp />} />
+          <Route path="/landing" element={<LandingPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
