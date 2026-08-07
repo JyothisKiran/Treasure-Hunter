@@ -109,7 +109,7 @@ function Button({
     <ShadcnButton
       {...props}
       className={cn(
-        "relative inline-flex min-h-11 items-center justify-center gap-1.5 rounded-none border-none px-4 py-2 transition-transform active:translate-y-1",
+        "rounded-none active:translate-y-1 transition-transform relative inline-flex items-center justify-center gap-1.5 border-none",
         size === "icon" && "mx-1 my-0",
         font !== "normal" && "retro",
         className
