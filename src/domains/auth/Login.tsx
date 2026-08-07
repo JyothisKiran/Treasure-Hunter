@@ -5,6 +5,7 @@ import { useNavigate } from "react-router-dom";
 const LoginPage = () => {
       const navigate = useNavigate();
 
+
     return(
         <div className="flex min-h-dvh flex-col items-center justify-center px-5 py-8">
           <LoginForm
@@ -13,6 +14,7 @@ const LoginPage = () => {
             navLinkText="Sign Up"
             navLink={() => navigate("/signup")}
             formButtonText="Login"
+            onSubmit={() => navigate("/landing")}
           />
         </div>
     )
