@@ -9,6 +9,7 @@ const LandingPage = () => {
   const navigate = useNavigate();
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [scannedValue, setScannedValue] = useState<string | null>(null);
+  const [vistedNodes, setVisitedNodes] = useState([])
 
   const handleDetected = (value: string) => {
     setIsScannerOpen(false);
@@ -41,7 +42,21 @@ const LandingPage = () => {
           </p>
         )}
       </div>
-      <GameRoadmap1 />
+      {vistedNodes.length > 0 ? (
+        <GameRoadmap1 />
+      ):(
+        <div className="flex flex-col items-center justify-center h-screen gap-8 px-4 pt-8">
+          {/* <p className="retro text-center text-xl text-muted-foreground">
+            Start your journey
+          </p> */}
+          <Button onClick={() => setIsScannerOpen(true)} type="button">
+            Start your journey
+          </Button>
+          <p className="retro text-center text-xs text-muted-foreground">
+            Scan any treasure code to begin your adventure in the pixelquest universe!
+          </p>
+        </div>
+      )}
       {isScannerOpen && (
         <QrCodeScanner
           onClose={() => setIsScannerOpen(false)}

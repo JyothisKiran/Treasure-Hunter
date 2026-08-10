@@ -2,6 +2,7 @@ import { LoginForm } from "@/components/ui/8bit/blocks/login-form-2"
 import { useLogin } from "@/hooks/mutations/useLogin";
 import { useNavigate } from "react-router-dom";
 import type { LoginFormData } from "./types";
+import { toast } from "@/components/ui/8bit/toast";
 
 
 const LoginPage = () => {
@@ -9,8 +10,6 @@ const LoginPage = () => {
   const loginMutation = useLogin();
 
   const handleLogin = (formData:LoginFormData) => {
-    console.log(formData);
-    
   loginMutation.mutate(
     {
       email: formData.email,
@@ -24,8 +23,13 @@ const LoginPage = () => {
         
         navigate("/landing");
       },
-      onError: (error) => {
-        console.error(error);
+      onError: (error) => {            
+        const message =
+          error.response?.data?.detail ??
+          error.response?.data?.non_field_errors?.[0] ??
+          "Login failed. Please try again.";
+
+        toast(message);
       },
     }
   );

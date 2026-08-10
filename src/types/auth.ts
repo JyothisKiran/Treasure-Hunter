@@ -18,3 +18,15 @@ export interface SignupResponse {
   id: number;
   email: string;
 }
+
+export interface SignupErrorResponse {
+  email?: string[];
+  password?: string[];
+  re_password?: string[];
+  detail?: string;
+  non_field_errors?: string[];
+}
+export interface LoginErrorResponse {
+  detail?: string;
+  non_field_errors?: string[];
+}
