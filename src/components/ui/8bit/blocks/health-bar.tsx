@@ -1,3 +1,5 @@
+import { Link } from "react-router-dom";
+
 import { cn } from "@/lib/utils";
 
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/8bit/avatar"
@@ -47,7 +49,7 @@ function PixelHeart({ filled, size = 4 }: PixelHeartProps) {
 
 interface HealthBarProps {
   className?: string;
-  teamName?: string;
+  teamHref?: string;
   hearts?: number;
   filledHearts?: number;
   totalPoints?: number;
@@ -56,7 +58,7 @@ interface HealthBarProps {
 
 export default function HealthBar({
   className,
-  teamName,
+  teamHref = "/team",
   hearts = 5,
   filledHearts = 5,
   totalPoints = 0,
@@ -64,16 +66,13 @@ export default function HealthBar({
 }: HealthBarProps) {
   return (
     <div className={cn("flex w-full flex-row items-start gap-2", className)}>
-      <Avatar>
-        <AvatarImage src="https://8bitcn.com/images/pixelized-8bitcnorc.jpg" alt="@8bitcn" />
-        <AvatarFallback>CN</AvatarFallback>
-      </Avatar>
-      <div className={cn("flex flex-col justify-center gap-1", !teamName && "h-11")}>
-        {teamName && (
-          <span className="retro text-[8px] tracking-tight text-muted-foreground uppercase">
-            {teamName}
-          </span>
-        )}
+      <Link to={teamHref} aria-label="View team">
+        <Avatar>
+          <AvatarImage src="https://8bitcn.com/images/pixelized-8bitcnorc.jpg" alt="@8bitcn" />
+          <AvatarFallback>CN</AvatarFallback>
+        </Avatar>
+      </Link>
+      <div className="h-11 flex flex-col justify-center gap-1">
         <div className="flex items-center gap-2">
           {Array.from({ length: hearts }, (_, index) => (
             <PixelHeart

@@ -13,7 +13,6 @@ export default function GameLayout() {
     <>
       <HealthBar
         className="fixed top-0 left-0 z-50 p-4"
-        teamName={team?.name}
         hearts={MAX_HEARTS}
         filledHearts={team ? Math.min(Math.max(team.life, 0), MAX_HEARTS) : MAX_HEARTS}
         totalPoints={team?.score ?? 0}
