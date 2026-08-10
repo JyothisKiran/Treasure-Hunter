@@ -10,9 +10,15 @@ export const apiClient = axios.create({
 
 apiClient.interceptors.request.use(
   (config) => {
+    const accessToken = localStorage.getItem("access");
+
+    if (accessToken) {
+      config.headers.Authorization = `Bearer ${accessToken}`;
+    }
+
     return config;
   },
-  (error) => Promise.reject(error)
+  (error) => Promise.reject(error),
 );
 
 apiClient.interceptors.response.use(
