@@ -1,0 +1,20 @@
+- generic [ref=f6e2]:
+  - main [ref=f6e3]:
+    - generic [ref=f6e7]:
+      - generic [ref=f6e8]:
+        - generic [ref=f6e9]: Welcome Back
+        - generic [ref=f6e10]: Login with your Codelynks account
+      - generic [ref=f6e13]:
+        - generic [ref=f6e14]:
+          - generic [ref=f6e15]:
+            - generic [ref=f6e16]: Email
+            - textbox "Email" [ref=f6e18]:
+              - /placeholder: m@example.com
+          - generic [ref=f6e19]:
+            - generic [ref=f6e20]: Password
+            - textbox "Password" [ref=f6e23]
+          - button "Login" [disabled]
+        - generic [ref=f6e24]:
+          - text: Don't have an account?
+          - generic [ref=f6e25]: Sign Up
+  - region "Notifications alt+T"

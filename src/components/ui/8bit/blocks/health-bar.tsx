@@ -47,6 +47,7 @@ function PixelHeart({ filled, size = 4 }: PixelHeartProps) {
 
 interface HealthBarProps {
   className?: string;
+  teamName?: string;
   hearts?: number;
   filledHearts?: number;
   totalPoints?: number;
@@ -55,6 +56,7 @@ interface HealthBarProps {
 
 export default function HealthBar({
   className,
+  teamName,
   hearts = 5,
   filledHearts = 5,
   totalPoints = 0,
@@ -66,7 +68,12 @@ export default function HealthBar({
         <AvatarImage src="https://8bitcn.com/images/pixelized-8bitcnorc.jpg" alt="@8bitcn" />
         <AvatarFallback>CN</AvatarFallback>
       </Avatar>
-      <div className="h-11 flex flex-col justify-center gap-1">
+      <div className={cn("flex flex-col justify-center gap-1", !teamName && "h-11")}>
+        {teamName && (
+          <span className="retro text-[8px] tracking-tight text-muted-foreground uppercase">
+            {teamName}
+          </span>
+        )}
         <div className="flex items-center gap-2">
           {Array.from({ length: hearts }, (_, index) => (
             <PixelHeart
