@@ -9,7 +9,7 @@ const LandingPage = () => {
   const navigate = useNavigate();
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [scannedValue, setScannedValue] = useState<string | null>(null);
-  const [vistedNodes, setVisitedNodes] = useState([])
+  const [vistedNodes] = useState([])
 
   const handleDetected = (value: string) => {
     setIsScannerOpen(false);

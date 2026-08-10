@@ -1,7 +1,5 @@
 "use client";
 
-import React from "react";
-
 import { toast as sonnerToast } from "sonner";
 
 import "@/components/ui/8bit/styles/retro.css";
