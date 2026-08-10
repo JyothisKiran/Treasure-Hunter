@@ -1,18 +1,32 @@
 import { useNavigate } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 
 import { Button } from "@/components/ui/8bit/button";
 import { useMe } from "@/hooks/queries/useMe";
+import { clearTokens } from "@/lib/auth";
 
 const TeamPage = () => {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { data: me, isLoading, isError } = useMe();
   const team = me?.team;
 
+  const handleLogout = () => {
+    clearTokens();
+    queryClient.clear();
+    navigate("/login");
+  };
+
   return (
     <div className="flex min-h-dvh flex-col items-center gap-6 px-4 py-20">
-      <Button variant="outline" onClick={() => navigate(-1)} className="self-start">
-        Back
-      </Button>
+      <div className="flex w-full max-w-md items-center justify-between">
+        <Button variant="outline" onClick={() => navigate(-1)}>
+          Back
+        </Button>
+        <Button variant="outline" onClick={handleLogout}>
+          Logout
+        </Button>
+      </div>
 
       {isLoading && <p className="retro text-sm">Loading team...</p>}
 
@@ -39,11 +53,13 @@ const TeamPage = () => {
               {team.members.map((member) => (
                 <li
                   key={member.id}
-                  className="flex items-center justify-between rounded border px-3 py-2"
+                  className="flex items-center justify-between gap-2 rounded border px-3 py-2"
                 >
-                  <span className="retro text-xs">{member.email}</span>
+                  <span className="retro min-w-0 flex-1 truncate text-xs">
+                    {member.email}
+                  </span>
                   {member.email === me?.email && (
-                    <span className="retro text-[10px] text-muted-foreground">
+                    <span className="retro shrink-0 text-[10px] text-muted-foreground">
                       YOU
                     </span>
                   )}

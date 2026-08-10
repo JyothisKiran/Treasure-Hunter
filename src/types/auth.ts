@@ -49,3 +49,12 @@ export interface MeResponse {
   email: string;
   team: Team;
 }
+
+export interface RefreshRequest {
+  refresh: string;
+}
+
+export interface RefreshResponse {
+  access: string;
+  refresh: string;
+}

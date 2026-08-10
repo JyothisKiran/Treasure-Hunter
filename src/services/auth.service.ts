@@ -1,5 +1,5 @@
 import { apiClient, ENDPOINTS } from "@/api";
-import type { LoginRequest, LoginResponse, MeResponse, SignupRequest, SignupResponse } from "@/types/auth";
+import type { LoginRequest, LoginResponse, MeResponse, RefreshRequest, RefreshResponse, SignupRequest, SignupResponse } from "@/types/auth";
 
 
 export const authService = {
@@ -19,5 +19,9 @@ export const authService = {
 
   getMe() {
     return apiClient.get<MeResponse>(ENDPOINTS.ME);
+  },
+
+  refreshToken(data: RefreshRequest) {
+    return apiClient.post<RefreshResponse>(ENDPOINTS.REFRESH, data);
   },
 };
