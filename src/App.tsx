@@ -9,6 +9,7 @@ import QueryProvider from "./providers/QueryProvider";
 import ScannerPage from "./routes/ScannerPage";
 import DetailPage from "./routes/DetailPage";
 import TeamPage from "./routes/TeamPage";
+import GameOverPage from "./routes/GameOverPage";
 
 function HomePage() {
   const navigate = useNavigate();
@@ -39,6 +40,7 @@ export default function App() {
             <Route path="/" element={<HomePage />} />
             <Route path="/login" element={<LoginPage />} />
             <Route path="/signup" element={<SignUp />} />
+            <Route path="/game-over" element={<GameOverPage />} />
             <Route element={<GameLayout />}>
               <Route path="/landing" element={<LandingPage />} />
               <Route path="/scan" element={<ScannerPage />} />
