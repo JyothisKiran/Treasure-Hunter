@@ -10,6 +10,8 @@ import ScannerPage from "./routes/ScannerPage";
 import DetailPage from "./routes/DetailPage";
 import TeamPage from "./routes/TeamPage";
 import GameOverPage from "./routes/GameOverPage";
+import RequireAuth from "./routes/guards/RequireAuth";
+import RequireGuest from "./routes/guards/RequireGuest";
 
 function HomePage() {
   const navigate = useNavigate();
@@ -37,15 +39,19 @@ export default function App() {
       <BrowserRouter>
         <Routes>
           <Route element={<AppLayout />}>
-            <Route path="/" element={<HomePage />} />
-            <Route path="/login" element={<LoginPage />} />
-            <Route path="/signup" element={<SignUp />} />
-            <Route path="/game-over" element={<GameOverPage />} />
-            <Route element={<GameLayout />}>
-              <Route path="/landing" element={<LandingPage />} />
-              <Route path="/scan" element={<ScannerPage />} />
-              <Route path="/detail" element={<DetailPage />} />
-              <Route path="/team" element={<TeamPage />} />
+            <Route element={<RequireGuest />}>
+              <Route path="/" element={<HomePage />} />
+              <Route path="/login" element={<LoginPage />} />
+              <Route path="/signup" element={<SignUp />} />
+            </Route>
+            <Route element={<RequireAuth />}>
+              <Route path="/game-over" element={<GameOverPage />} />
+              <Route element={<GameLayout />}>
+                <Route path="/landing" element={<LandingPage />} />
+                <Route path="/scan" element={<ScannerPage />} />
+                <Route path="/detail" element={<DetailPage />} />
+                <Route path="/team" element={<TeamPage />} />
+              </Route>
             </Route>
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
