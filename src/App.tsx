@@ -5,6 +5,8 @@ import AppLayout from "./layouts/AppLayout";
 import { BrowserRouter, Navigate, Route, Routes, useNavigate } from "react-router-dom";
 import LandingPage from "./routes/LandingPage";
 import QueryProvider from "./providers/QueryProvider";
+import ScannerPage from "./routes/ScannerPage";
+import DetailPage from "./routes/DetailPage";
 
 function HomePage() {
   const navigate = useNavigate();
@@ -36,6 +38,8 @@ export default function App() {
             <Route path="/login" element={<LoginPage />} />
             <Route path="/signup" element={<SignUp />} />
             <Route path="/landing" element={<LandingPage />} />
+            <Route path="/scan" element={<ScannerPage />} />
+            <Route path="/detail" element={<DetailPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
