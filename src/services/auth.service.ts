@@ -1,5 +1,5 @@
 import { apiClient, ENDPOINTS } from "@/api";
-import type { LoginRequest, LoginResponse, SignupRequest, SignupResponse } from "@/types/auth";
+import type { LoginRequest, LoginResponse, MeResponse, SignupRequest, SignupResponse } from "@/types/auth";
 
 
 export const authService = {
@@ -15,5 +15,9 @@ export const authService = {
       ENDPOINTS.SIGNUP,
       data
     );
+  },
+
+  getMe() {
+    return apiClient.get<MeResponse>(ENDPOINTS.ME);
   },
 };

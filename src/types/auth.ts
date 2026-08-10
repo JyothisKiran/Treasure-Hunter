@@ -30,3 +30,22 @@ export interface LoginErrorResponse {
   detail?: string;
   non_field_errors?: string[];
 }
+
+export interface TeamMember {
+  id: number;
+  email: string;
+}
+
+export interface Team {
+  id: number;
+  name: string;
+  score: number;
+  life: number;
+  members: TeamMember[];
+}
+
+export interface MeResponse {
+  id: number;
+  email: string;
+  team: Team;
+}
