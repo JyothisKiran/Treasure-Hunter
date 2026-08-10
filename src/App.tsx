@@ -2,6 +2,7 @@ import Hero1 from "./components/ui/8bit/blocks/hero1";
 import LoginPage from "./domains/auth/Login";
 import SignUp from "./domains/auth/Signup";
 import AppLayout from "./layouts/AppLayout";
+import GameLayout from "./layouts/GameLayout";
 import { BrowserRouter, Navigate, Route, Routes, useNavigate } from "react-router-dom";
 import LandingPage from "./routes/LandingPage";
 import QueryProvider from "./providers/QueryProvider";
@@ -37,9 +38,11 @@ export default function App() {
             <Route path="/" element={<HomePage />} />
             <Route path="/login" element={<LoginPage />} />
             <Route path="/signup" element={<SignUp />} />
-            <Route path="/landing" element={<LandingPage />} />
-            <Route path="/scan" element={<ScannerPage />} />
-            <Route path="/detail" element={<DetailPage />} />
+            <Route element={<GameLayout />}>
+              <Route path="/landing" element={<LandingPage />} />
+              <Route path="/scan" element={<ScannerPage />} />
+              <Route path="/detail" element={<DetailPage />} />
+            </Route>
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
