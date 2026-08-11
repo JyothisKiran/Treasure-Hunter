@@ -9,6 +9,7 @@ import QueryProvider from "./providers/QueryProvider";
 import ScannerPage from "./routes/ScannerPage";
 import DetailPage from "./routes/DetailPage";
 import TeamPage from "./routes/TeamPage";
+import AttackPage from "./routes/AttackPage";
 import GameOverPage from "./routes/GameOverPage";
 import RequireAuth from "./routes/guards/RequireAuth";
 import RequireGuest from "./routes/guards/RequireGuest";
@@ -51,6 +52,7 @@ export default function App() {
                 <Route path="/scan" element={<ScannerPage />} />
                 <Route path="/detail" element={<DetailPage />} />
                 <Route path="/team" element={<TeamPage />} />
+                <Route path="/attack" element={<AttackPage />} />
               </Route>
             </Route>
           </Route>

@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import { Swords } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
@@ -50,6 +51,7 @@ function PixelHeart({ filled, size = 4 }: PixelHeartProps) {
 interface HealthBarProps {
   className?: string;
   teamHref?: string;
+  attackHref?: string;
   hearts?: number;
   filledHearts?: number;
   totalPoints?: number;
@@ -59,36 +61,47 @@ interface HealthBarProps {
 export default function HealthBar({
   className,
   teamHref = "/team",
+  attackHref = "/attack",
   hearts = 5,
   filledHearts = 5,
   totalPoints = 0,
   heartSize = 3,
 }: HealthBarProps) {
   return (
-    <div className={cn("flex w-full flex-row items-start gap-2", className)}>
-      <Link to={teamHref} aria-label="View team">
-        <Avatar>
-          <AvatarImage src="https://8bitcn.com/images/pixelized-8bitcnorc.jpg" alt="@8bitcn" />
-          <AvatarFallback>CN</AvatarFallback>
-        </Avatar>
-      </Link>
-      <div className="h-11 flex flex-col justify-center gap-1">
-        <div className="flex items-center gap-2">
-          {Array.from({ length: hearts }, (_, index) => (
-            <PixelHeart
-              key={index}
-              filled={index < filledHearts}
-              size={heartSize}
-            />
-          ))}
-        </div>
+    <div className={cn("flex w-full flex-row items-start justify-between gap-4", className)}>
+      <div className="flex flex-row items-start gap-2">
+        <Link to={teamHref} aria-label="View team">
+          <Avatar>
+            <AvatarImage src="https://8bitcn.com/images/pixelized-8bitcnorc.jpg" alt="@8bitcn" />
+            <AvatarFallback>CN</AvatarFallback>
+          </Avatar>
+        </Link>
+        <div className="h-11 flex flex-col justify-center gap-1">
+          <div className="flex items-center gap-2">
+            {Array.from({ length: hearts }, (_, index) => (
+              <PixelHeart
+                key={index}
+                filled={index < filledHearts}
+                size={heartSize}
+              />
+            ))}
+          </div>
 
-        <div className="flex w-full items-center justify-start gap-2">
-          <span className="retro text-[10px] tracking-tight">
-            {totalPoints.toLocaleString()} PTS
-          </span>
+          <div className="flex w-full items-center justify-start gap-2">
+            <span className="retro text-[10px] tracking-tight">
+              {totalPoints.toLocaleString()} PTS
+            </span>
+          </div>
         </div>
       </div>
+
+      <Link
+        to={attackHref}
+        aria-label="Attack another team"
+        className="flex size-11 shrink-0 items-center justify-center rounded-full border-2 border-foreground bg-background/80 text-foreground dark:border-ring"
+      >
+        <Swords className="size-5" />
+      </Link>
     </div>
   );
 }

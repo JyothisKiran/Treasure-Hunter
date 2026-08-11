@@ -2,7 +2,6 @@ import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { Button } from "@/components/ui/8bit/button";
-import AttackPanel from "@/components/AttackPanel";
 import { useMe } from "@/hooks/queries/useMe";
 import { clearTokens } from "@/lib/auth";
 
@@ -45,8 +44,6 @@ const TeamPage = () => {
               {team.score.toLocaleString()} PTS · {team.life} LIFE
             </span>
           </div>
-
-          <AttackPanel availableAttackPoints={team.attack} />
 
           <div className="flex flex-col gap-2">
             <h2 className="retro text-xs text-muted-foreground uppercase">

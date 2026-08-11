@@ -11,27 +11,43 @@ interface AttackPanelProps {
 }
 
 export default function AttackPanel({ availableAttackPoints }: AttackPanelProps) {
-  const { data: targetTeams, isLoading } = useTargetTeams();
-  const { mutate: attack, isPending } = useTargetAttack();
+  const {
+    data: targetTeams,
+    isLoading,
+    isError: isTargetTeamsError,
+    refetch: refetchTargetTeams,
+    isFetching: isRefetchingTargetTeams,
+  } = useTargetTeams();
+  const { mutate: attack, isPending, error: attackError } = useTargetAttack();
   const [targetTeamId, setTargetTeamId] = useState<number | null>(null);
   const [attackValue, setAttackValue] = useState(1);
 
   const teams = targetTeams?.data ?? [];
+  const hasAttackPoints = availableAttackPoints > 0;
+  const attackErrorMessage = attackError?.response?.data?.detail ?? attackError?.message;
+
+  const handleAttackValueChange = (raw: string) => {
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed)) return;
+    setAttackValue(Math.min(Math.max(1, Math.trunc(parsed)), Math.max(1, availableAttackPoints)));
+  };
 
   const handleAttack = () => {
-    if (targetTeamId === null) return;
+    if (targetTeamId === null || !hasAttackPoints) return;
     attack(
       { target_team: targetTeamId, attack_value: attackValue },
       {
-        onSuccess: (data) => toast(data.detail),
-        onError: (error) => toast(error.response?.data?.detail ?? "Attack failed."),
+        onSuccess: (data) => {
+          toast(data.detail);
+          setTargetTeamId(null);
+          setAttackValue(1);
+        },
+        onError: (error) => {
+          toast(error.response?.data?.detail ?? "Attack failed. Please try again.");
+        },
       }
     );
   };
-
-  if (availableAttackPoints <= 0) {
-    return null;
-  }
 
   return (
     <div className="flex flex-col gap-3 rounded border p-4">
@@ -42,15 +58,38 @@ export default function AttackPanel({ availableAttackPoints }: AttackPanelProps)
         </span>
       </div>
 
-      {isLoading && <p className="retro text-xs">Loading targets...</p>}
+      {!hasAttackPoints && (
+        <p className="retro text-xs text-muted-foreground">
+          You don't have any attack points yet. Collect them along the trail.
+        </p>
+      )}
 
-      {!isLoading && teams.length === 0 && (
+      {hasAttackPoints && isLoading && (
+        <p className="retro text-xs">Loading targets...</p>
+      )}
+
+      {hasAttackPoints && isTargetTeamsError && (
+        <div className="flex flex-col items-start gap-2">
+          <p className="retro text-xs text-destructive">
+            Couldn't load teams to attack. Check your connection and try again.
+          </p>
+          <Button
+            variant="outline"
+            onClick={() => refetchTargetTeams()}
+            disabled={isRefetchingTargetTeams}
+          >
+            {isRefetchingTargetTeams ? "Retrying..." : "Retry"}
+          </Button>
+        </div>
+      )}
+
+      {hasAttackPoints && !isLoading && !isTargetTeamsError && teams.length === 0 && (
         <p className="retro text-xs text-muted-foreground">
           No teams available to attack right now.
         </p>
       )}
 
-      {teams.length > 0 && (
+      {hasAttackPoints && !isTargetTeamsError && teams.length > 0 && (
         <div className="flex flex-col gap-3">
           <ul className="flex flex-col gap-2">
             {teams.map((team) => (
@@ -75,11 +114,7 @@ export default function AttackPanel({ availableAttackPoints }: AttackPanelProps)
               min={1}
               max={availableAttackPoints}
               value={attackValue}
-              onChange={(e) =>
-                setAttackValue(
-                  Math.min(Math.max(1, Number(e.target.value)), availableAttackPoints)
-                )
-              }
+              onChange={(e) => handleAttackValueChange(e.target.value)}
               className="w-24"
             />
             <Button
@@ -90,6 +125,10 @@ export default function AttackPanel({ availableAttackPoints }: AttackPanelProps)
               {isPending ? "Attacking..." : "Attack"}
             </Button>
           </div>
+
+          {attackErrorMessage && (
+            <p className="retro text-xs text-destructive">{attackErrorMessage}</p>
+          )}
         </div>
       )}
     </div>
