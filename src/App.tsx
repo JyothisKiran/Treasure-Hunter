@@ -13,6 +13,7 @@ import AttackPage from "./routes/AttackPage";
 import GameOverPage from "./routes/GameOverPage";
 import RequireAuth from "./routes/guards/RequireAuth";
 import RequireGuest from "./routes/guards/RequireGuest";
+import ResultPage from "./routes/ResultPage";
 
 function HomePage() {
   const navigate = useNavigate();
@@ -53,6 +54,7 @@ export default function App() {
                 <Route path="/detail" element={<DetailPage />} />
                 <Route path="/team" element={<TeamPage />} />
                 <Route path="/attack" element={<AttackPage />} />
+                <Route path="/result" element={<ResultPage />} />
               </Route>
             </Route>
           </Route>

@@ -1,7 +1,8 @@
 export const ENDPOINTS = {
   LOGIN: "/auth/jwt/create/",
   SIGNUP: "/auth/users/",
-  SCANQR: "/nodes/{id}/submit/",
+  SCANQR: (id: string) =>  `/nodes/${id}/submit/`,
+  CURRENT_NODE: '/nodes/current/',
   ME: "/auth/users/me/",
   REFRESH: "/auth/jwt/refresh/",
   TARGET_TEAMS: "/nodes/target-teams/",
