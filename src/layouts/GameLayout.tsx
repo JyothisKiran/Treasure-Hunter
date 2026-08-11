@@ -22,6 +22,7 @@ export default function GameLayout() {
         hearts={MAX_HEARTS}
         filledHearts={team ? Math.min(Math.max(team.life, 0), MAX_HEARTS) : MAX_HEARTS}
         totalPoints={team?.score ?? 0}
+        attackPoints={team?.attack ?? 0}
       />
       <Outlet />
     </>

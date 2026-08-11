@@ -4,6 +4,8 @@ import { Swords } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/8bit/avatar"
+import { Badge } from "@/components/ui/8bit/badge";
+import { Button } from "@/components/ui/8bit/button";
 import "@/components/ui/8bit/styles/retro.css";
 
 // 7x6 pixel-art heart mask, 1 = filled pixel
@@ -56,6 +58,7 @@ interface HealthBarProps {
   filledHearts?: number;
   totalPoints?: number;
   heartSize?: number;
+  attackPoints?: number;
 }
 
 export default function HealthBar({
@@ -66,6 +69,7 @@ export default function HealthBar({
   filledHearts = 5,
   totalPoints = 0,
   heartSize = 3,
+  attackPoints = 0,
 }: HealthBarProps) {
   return (
     <div className={cn("flex w-full flex-row items-start justify-between gap-4", className)}>
@@ -95,13 +99,24 @@ export default function HealthBar({
         </div>
       </div>
 
-      <Link
-        to={attackHref}
-        aria-label="Attack another team"
-        className="flex size-11 shrink-0 items-center justify-center rounded-full border-2 border-foreground bg-background/80 text-foreground dark:border-ring"
-      >
-        <Swords className="size-5" />
-      </Link>
+      <div className="relative shrink-0">
+        <Button asChild size="icon" variant="outline" className="size-11">
+          <Link
+            to={attackHref}
+            aria-label={`Attack another team, ${attackPoints} attack points left`}
+          >
+            <Swords className="size-5" />
+          </Link>
+        </Button>
+        {attackPoints > 0 && (
+          <Badge
+            aria-hidden="true"
+            className="absolute -top-2 -right-2 h-5 bg-red-500 px-1 text-[10px] leading-none text-white dark:bg-red-600"
+          >
+            {attackPoints > 99 ? "99+" : attackPoints}
+          </Badge>
+        )}
+      </div>
     </div>
   );
 }
