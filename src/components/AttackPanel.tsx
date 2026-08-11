@@ -2,7 +2,6 @@ import { useState } from "react";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/8bit/avatar";
 import { Button } from "@/components/ui/8bit/button";
-import { Input } from "@/components/ui/8bit/input";
 import { toast } from "@/components/ui/8bit/toast";
 import { HeartRow } from "@/components/ui/8bit/blocks/pixel-heart";
 import { useTargetTeams } from "@/hooks/queries/useTargetTeams";
@@ -23,27 +22,19 @@ export default function AttackPanel({ availableAttackPoints }: AttackPanelProps)
   } = useTargetTeams();
   const { mutate: attack, isPending, error: attackError } = useTargetAttack();
   const [targetTeamId, setTargetTeamId] = useState<number | null>(null);
-  const [attackValue, setAttackValue] = useState(1);
 
   const teams = targetTeams?.data ?? [];
   const hasAttackPoints = availableAttackPoints > 0;
   const attackErrorMessage = attackError?.response?.data?.detail ?? attackError?.message;
 
-  const handleAttackValueChange = (raw: string) => {
-    const parsed = Number(raw);
-    if (!Number.isFinite(parsed)) return;
-    setAttackValue(Math.min(Math.max(1, Math.trunc(parsed)), Math.max(1, availableAttackPoints)));
-  };
-
   const handleAttack = () => {
     if (targetTeamId === null || !hasAttackPoints) return;
     attack(
-      { target_team: targetTeamId, attack_value: attackValue },
+      { target_team: targetTeamId, attack_value: 1 },
       {
         onSuccess: (data) => {
           toast(data.detail);
           setTargetTeamId(null);
-          setAttackValue(1);
         },
         onError: (error) => {
           toast(error.response?.data?.detail ?? "Attack failed. Please try again.");
@@ -127,23 +118,13 @@ export default function AttackPanel({ availableAttackPoints }: AttackPanelProps)
             ))}
           </ul>
 
-          <div className="flex items-center gap-2">
-            <Input
-              type="number"
-              min={1}
-              max={availableAttackPoints}
-              value={attackValue}
-              onChange={(e) => handleAttackValueChange(e.target.value)}
-              className="w-24"
-            />
-            <Button
-              variant="default"
-              disabled={targetTeamId === null || isPending}
-              onClick={handleAttack}
-            >
-              {isPending ? "Attacking..." : "Attack"}
-            </Button>
-          </div>
+          <Button
+            variant="default"
+            disabled={targetTeamId === null || isPending}
+            onClick={handleAttack}
+          >
+            {isPending ? "Attacking..." : "Attack"}
+          </Button>
 
           {attackErrorMessage && (
             <p className="retro text-xs text-destructive">{attackErrorMessage}</p>
