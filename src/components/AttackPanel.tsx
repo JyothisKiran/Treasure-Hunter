@@ -1,10 +1,13 @@
 import { useState } from "react";
 
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/8bit/avatar";
 import { Button } from "@/components/ui/8bit/button";
 import { Input } from "@/components/ui/8bit/input";
 import { toast } from "@/components/ui/8bit/toast";
+import { HeartRow } from "@/components/ui/8bit/blocks/pixel-heart";
 import { useTargetTeams } from "@/hooks/queries/useTargetTeams";
 import { useTargetAttack } from "@/hooks/mutations/useTargetAttack";
+import { MAX_HEARTS } from "@/lib/constants";
 
 interface AttackPanelProps {
   availableAttackPoints: number;
@@ -97,12 +100,28 @@ export default function AttackPanel({ availableAttackPoints }: AttackPanelProps)
                 <button
                   type="button"
                   onClick={() => setTargetTeamId(team.id)}
-                  className={`retro flex w-full items-center justify-between rounded border px-3 py-2 text-xs ${
+                  className={`flex w-full items-center gap-2 rounded border px-3 py-2 ${
                     targetTeamId === team.id ? "border-primary bg-primary/10" : ""
                   }`}
                 >
-                  <span>{team.name}</span>
-                  <span className="text-muted-foreground">{team.life} LIFE</span>
+                  <Avatar>
+                    <AvatarImage
+                      src="https://8bitcn.com/images/pixelized-8bitcnorc.jpg"
+                      alt={team.name}
+                    />
+                    <AvatarFallback>{team.name.slice(0, 2).toUpperCase()}</AvatarFallback>
+                  </Avatar>
+                  <div className="flex min-w-0 flex-1 flex-col items-start gap-1">
+                    <span className="retro truncate text-xs">{team.name}</span>
+                    <HeartRow
+                      hearts={MAX_HEARTS}
+                      filledHearts={Math.min(Math.max(team.life, 0), MAX_HEARTS)}
+                      heartSize={3}
+                    />
+                    <span className="retro text-[10px] tracking-tight text-muted-foreground">
+                      {team.score.toLocaleString()} PTS
+                    </span>
+                  </div>
                 </button>
               </li>
             ))}

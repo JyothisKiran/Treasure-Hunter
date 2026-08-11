@@ -3,8 +3,7 @@ import { Navigate, Outlet } from "react-router-dom";
 import HealthBar from "@/components/ui/8bit/blocks/health-bar";
 import { useMe } from "@/hooks/queries/useMe";
 import { useTeamEvents } from "@/hooks/useTeamEvents";
-
-const MAX_HEARTS = 5;
+import { MAX_HEARTS } from "@/lib/constants";
 
 export default function GameLayout() {
   const { data: me } = useMe();
