@@ -2,12 +2,14 @@ import { Navigate, Outlet } from "react-router-dom";
 
 import HealthBar from "@/components/ui/8bit/blocks/health-bar";
 import { useMe } from "@/hooks/queries/useMe";
+import { useTeamEvents } from "@/hooks/useTeamEvents";
 
 const MAX_HEARTS = 5;
 
 export default function GameLayout() {
   const { data: me } = useMe();
   const team = me?.team;
+  useTeamEvents();
 
   if (team && team.life <= 0) {
     return <Navigate to="/game-over" replace />;
