@@ -27,6 +27,7 @@ export function useScanQr() {
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["current-node"] });
+      await queryClient.invalidateQueries({ queryKey: ["me"] });
     },
   });
 }

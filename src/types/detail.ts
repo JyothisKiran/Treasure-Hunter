@@ -19,6 +19,8 @@ export interface SubmitScanResponse {
     data?: CurrentNode;
     score?: number;
     bonus?: number;
+    life?: number;
+    attack?: number;
     [key: string]: unknown;
 }
 

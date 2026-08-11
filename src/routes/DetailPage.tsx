@@ -30,12 +30,6 @@ const DetailPage = () => {
 
   return (
     <div className="realtive flex flex-col items-center justify-center h-screen gap-8 px-4 pt-8">
-      <p
-        className="retro absolute top-4 left-4"
-        onClick={() => navigate("/landing")}
-      >
-        &lt; Go Back
-      </p>
       <p className="retro text-center text-md text-muted-foreground capitalize">
         {node.data}
       </p>
