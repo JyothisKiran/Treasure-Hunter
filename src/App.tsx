@@ -7,6 +7,7 @@ import LandingPage from "./routes/LandingPage";
 import QueryProvider from "./providers/QueryProvider";
 import ScannerPage from "./routes/ScannerPage";
 import DetailPage from "./routes/DetailPage";
+import ResultPage from "./routes/ResultPage";
 
 function HomePage() {
   const navigate = useNavigate();
@@ -40,6 +41,7 @@ export default function App() {
             <Route path="/landing" element={<LandingPage />} />
             <Route path="/scan" element={<ScannerPage />} />
             <Route path="/detail" element={<DetailPage />} />
+            <Route path="/result" element={<ResultPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

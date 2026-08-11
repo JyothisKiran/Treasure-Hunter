@@ -1,4 +1,7 @@
-import { type VariantProps, cva } from "class-variance-authority";
+import {
+  type VariantProps,
+  cva,
+} from "class-variance-authority";
 
 import { cn } from "@/lib/utils";
 
@@ -36,6 +39,7 @@ interface InputOTPProps {
   onChange?: (value: string) => unknown;
   children?: React.ReactNode;
   className?: string;
+  containerClassName?: string;
   font?: "normal" | "retro";
 }
 
@@ -46,16 +50,27 @@ export const InputOTP = ({
   value,
   onChange,
   children,
+  containerClassName,
   ...otherProps
 }: InputOTPProps) => {
   return (
-    <div className={cn("relative w-fit", className)}>
+    <div
+      className={cn(
+        "relative w-full max-w-full min-w-0",
+        className,
+      )}
+    >
       <ShadcnInputOTP
         maxLength={maxLength}
         value={value}
         onChange={onChange}
+        containerClassName={containerClassName}
         {...otherProps}
-        className={cn(font !== "normal" && "retro", className)}
+        className={cn(
+          "w-full max-w-full min-w-0",
+          font !== "normal" && "retro",
+          className,
+        )}
       >
         {children}
       </ShadcnInputOTP>
@@ -63,9 +78,18 @@ export const InputOTP = ({
   );
 };
 
-export const InputOTPGroup = ({ className, ...props }: SharedProps) => {
+export const InputOTPGroup = ({
+  className,
+  ...props
+}: SharedProps) => {
   return (
-    <ShadcnInputOTPGroup {...props} className={cn("flex gap-2", className)} />
+    <ShadcnInputOTPGroup
+      {...props}
+      className={cn(
+        "flex gap-0",
+        className,
+      )}
+    />
   );
 };
 
@@ -73,28 +97,53 @@ export const InputOTPSlot = ({
   className,
   font,
   index = 0,
+  style,
   ...props
-}: SharedProps & { index?: number }) => {
+}: SharedProps & {
+  index?: number;
+}) => {
   return (
-    <div className="relative size-12 border-y-6 border-foreground dark:border-ring">
+    <div
+      className={cn(
+        "relative h-8 w-7 shrink-0 border-y-6 border-foreground dark:border-ring box-border",
+        className,
+      )}
+      style={style}
+    >
       <ShadcnInputOTPSlot
         index={index}
         {...props}
         className={cn(
-          "pl-1 size-full text-center text-xl tracking-widest z-0 ring-0 border-transparent ",
+          "size-full pl-1 text-center text-xl tracking-widest z-0 ring-0 border-transparent",
           font !== "normal" && "retro",
-          className
         )}
       />
 
       <div
-        className="absolute inset-0 border-x-6 -mx-1.5 border-foreground dark:border-ring pointer-events-none"
+        className="
+          absolute
+          inset-0
+          border-x-6
+          -mx-1.5
+          border-foreground
+          dark:border-ring
+          pointer-events-none
+          box-border
+        "
         aria-hidden="true"
       />
     </div>
   );
 };
 
-export const InputOTPSeparator = ({ className, ...props }: SharedProps) => {
-  return <ShadcnInputOTPSeparator {...props} className={cn("", className)} />;
+export const InputOTPSeparator = ({
+  className,
+  ...props
+}: SharedProps) => {
+  return (
+    <ShadcnInputOTPSeparator
+      {...props}
+      className={cn("", className)}
+    />
+  );
 };

@@ -1,64 +1,50 @@
-import { useEffect, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 
-import { useScanQr } from "@/hooks/mutations/useScanQr";
 
 import AnswerInput from "@/components/AnswerInput";
+import { Button } from "@/components/ui/8bit/button";
+import { useCurrentNode } from "@/hooks/queries/useCurrentNode";
 const DetailPage = () => {
-  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
   const [answer, setAnswer] = useState("");
+  const { data: result, isPending, isError } = useCurrentNode();
+  
 
+  if (isPending) return <p className="retro flex min-h-dvh items-center justify-center text-xs">Loading question...</p>;
+  if (isError) return <p className="retro flex min-h-dvh items-center justify-center text-xs text-destructive">Unable to load the current question.</p>;
 
-  const code = searchParams.get("code");
+  if (!result?.node) {
+    const gameNotStarted = result?.detail?.toLowerCase() === "game not started yet.";
 
-  const dummyData = {
-    answers:[],
-    bonus: 0,
-    clue:"_ _ _ _ _ _ _ _",
-    encoded_answer: "******** ******",
-    created_at:"2026-08-05T12:31:07.794331Z",
-    data: "which company first developed cell phone",
-    effects: "UNLOCKED",
-    id:3,
-    score:10,
+    return (
+      <div className="retro flex min-h-dvh flex-col items-center justify-center gap-6 px-4 text-center">
+        <h1 className="retro text-2xl">{gameNotStarted ? "GAME NOT STARTED" : "UNAVAILABLE"}</h1>
+        <p className="retro text-sm text-muted-foreground">{result?.detail ?? "Unable to load the current question."}</p>
+        {gameNotStarted && <Button onClick={() => navigate("/scan")}>START SCANNING</Button>}
+      </div>
+    );
   }
 
-  const qrScanMutation = useScanQr();
-
-  useEffect(() => {
-    if (!code) {
-      return;
-    }
-
-    qrScanMutation.mutate(code);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [code]);
-
-  console.log("QR Code:", code);
-  console.log("data:", qrScanMutation.data?.data);
-
-//   if (!code) {
-//     return <p className="retro text-center text-xs text-muted-foreground">Invalid QR code.</p>;
-//   }
-
-//   if (qrScanMutation.isPending) {
-//     return <p className="retro text-center text-xs text-muted-foreground" >Loading...</p>;
-//   }
-
-//   if (qrScanMutation.isError) {
-//     return <p className="retro text-center text-xs text-muted-foreground">Failed to load question details.</p>;
-//   }
+  const { node } = result;
 
   return (
-    <div className="flex flex-col items-center justify-center h-screen gap-8 px-4 pt-8">
-      {/* {qrScanMutation.data && ( */}
-        <p className="retro text-center text-xs text-muted-foreground capitalize" >{dummyData?.data}</p>
-      {/* )} */}
+    <div className="realtive flex flex-col items-center justify-center h-screen gap-8 px-4 pt-8">
+      <p
+        className="retro absolute top-4 left-4"
+        onClick={() => navigate("/landing")}
+      >
+        &lt; Go Back
+      </p>
+      <p className="retro text-center text-md text-muted-foreground capitalize">
+        {node.data}
+      </p>
       <AnswerInput
-  pattern={dummyData?.encoded_answer}
-  value={answer}
-  onChange={setAnswer}
-/>
+        pattern={node.encoded_answer}
+        value={answer}
+        onChange={setAnswer}
+      />
+      <Button onClick={() => navigate('/scan')}>Scan</Button>
     </div>
   );
 };

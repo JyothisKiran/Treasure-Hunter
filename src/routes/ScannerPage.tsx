@@ -5,7 +5,7 @@ const ScannerPage = () => {
   const navigate = useNavigate();
 
   const handleDetected = (value: string) => {
-    navigate(`/detail?code=${encodeURIComponent(value)}`);
+    navigate(`/result?code=${encodeURIComponent(value)}`);
   };
 
   return (
