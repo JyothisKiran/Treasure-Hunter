@@ -3,6 +3,7 @@ import { useLogin } from "@/hooks/mutations/useLogin";
 import { useNavigate } from "react-router-dom";
 import type { LoginFormData } from "./types";
 import { toast } from "@/components/ui/8bit/toast";
+import { setTokens } from "@/lib/auth";
 
 
 const LoginPage = () => {
@@ -17,10 +18,7 @@ const LoginPage = () => {
     },
     {
       onSuccess: (data) => {
-        localStorage.setItem("access", data.access);
-        localStorage.setItem("refresh", data.refresh);
-        console.log('success');
-        
+        setTokens(data);
         navigate("/landing");
       },
       onError: (error) => {            
