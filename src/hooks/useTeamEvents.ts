@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
+import { API_BASE_URL } from "@/api/client";
 import { getAccessToken } from "@/lib/auth";
 import { toast } from "@/components/ui/8bit/toast";
 import { teamService } from "@/services/team.service";
@@ -57,8 +58,7 @@ export function useTeamEvents() {
         const { data } = await teamService.getStreamTicket();
         if (cancelled) return;
 
-        const baseUrl = import.meta.env.VITE_API_BASE_URL ?? "";
-        const url = `${baseUrl}/teams/stream/?ticket=${encodeURIComponent(data.ticket)}`;
+        const url = `${API_BASE_URL}/teams/stream/?ticket=${encodeURIComponent(data.ticket)}`;
         source = new EventSource(url);
 
         source.addEventListener("team_attacked", (event) => {
