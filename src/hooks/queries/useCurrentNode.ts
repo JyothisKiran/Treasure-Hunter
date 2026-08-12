@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 
-import { detailService } from "@/services/detail.service";
+import { detailService } from "@/services/features.service";
 import type { CurrentNodeResponse, CurrentNodeResult } from "@/types/detail";
 
 function unwrapCurrentNode(response: CurrentNodeResponse, status: number): CurrentNodeResult {

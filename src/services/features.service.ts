@@ -1,10 +1,10 @@
 import { apiClient, ENDPOINTS } from "@/api";
-import type { CurrentNodeResponse, SubmitScanResponse } from "@/types/detail";
+import type { CurrentNodeResponse, ScanResponsePayload } from "@/types/detail";
 
 
 export const detailService = {
   scanqr(id: string) {
-    return apiClient.post<SubmitScanResponse>(
+    return apiClient.post<ScanResponsePayload>(
       ENDPOINTS.SCANQR(id),
       {},
       // QR submission can return useful payloads for non-2xx statuses.
@@ -19,6 +19,18 @@ export const detailService = {
       // The API communicates game state (such as "Game not started yet.")
       // in a 400 response body.
       { validateStatus: () => true },
+    );
+  },
+
+  getVisitedNodes(path?: string | null) {
+    return apiClient.get<any>(
+      ENDPOINTS.VISITED_NODES,
+      // The API communicates game state (such as "Game not started yet.")
+      // in a 400 response body.
+      {
+        validateStatus: () => true,
+        params: path ? { path } : undefined,
+      },
     );
   },
 };
