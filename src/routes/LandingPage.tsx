@@ -8,6 +8,7 @@ import { toast } from "@/components/ui/8bit/toast";
 interface Node {
   data: string;
   status: string;
+  effects?: string;
   }
 
 interface TransformedNode {
@@ -35,10 +36,11 @@ const LandingPage = () => {
 
  const transformNodes = (nodes: Node[]): TransformedNode[] => {
   return nodes.map((node, index) => ({
-    title: `Quest${index + 1}`,
+    title: node.effects==="JUNCTION" ? "Junction" : `Quest${index + 1}`,
     description: node.data,
     status: node.status as Quest["status"],
     action: node.status === "in-progress" ? () => navigate('/detail') : () =>  showAlreadyVisited(node.status), 
+    effects: node.effects,
   }));
 };
 

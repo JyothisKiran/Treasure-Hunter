@@ -1,4 +1,5 @@
 import { cn } from "@/lib/utils";
+import { GitBranch } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import {
@@ -15,6 +16,7 @@ export interface Quest {
   status: "completed" | "in-progress" | "locked";
   title: string;
   action: () => void;
+  effects?: string;
 }
 
 interface GameRoadmap1Props {
@@ -110,6 +112,7 @@ export default function GameRoadmap1({
             {quests.map((quest) => {
               const config = statusConfig[quest.status];
               const isLocked = quest.status === "locked";
+              const isJunction = quest.effects === "JUNCTION";
 
               return (
                 <div className="relative flex gap-4" key={quest.title} onClick={quest.action}>
@@ -119,9 +122,12 @@ export default function GameRoadmap1({
                       isLocked
                         ? "border-muted text-muted-foreground"
                         : "border-primary",
+                        isJunction && "border-blue-500 dark:border-blue-700"
                     )}
                   >
-                    {quest.status === "completed"
+                    {isJunction
+                      ? <GitBranch aria-label="Branch point" className="size-5" color="blue" />
+                      : quest.status === "completed"
                       ? "+"
                       : quest.status === "in-progress"
                         ? ">>"
@@ -132,6 +138,7 @@ export default function GameRoadmap1({
                     className={cn(
                       "flex-1",
                       isLocked && "opacity-50",
+                      isJunction && "bg-blue-600/40 dark:border-blue-700",
                     )}
                   >
                     <CardHeader className="pb-2">

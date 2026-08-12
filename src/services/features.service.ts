@@ -1,10 +1,10 @@
 import { apiClient, ENDPOINTS } from "@/api";
-import type { CurrentNodeResponse, SubmitScanResponse } from "@/types/detail";
+import type { CurrentNodeResponse, ScanResponsePayload } from "@/types/detail";
 
 
 export const detailService = {
   scanqr(id: string) {
-    return apiClient.post<SubmitScanResponse>(
+    return apiClient.post<ScanResponsePayload>(
       ENDPOINTS.SCANQR(id),
       {},
       // QR submission can return useful payloads for non-2xx statuses.

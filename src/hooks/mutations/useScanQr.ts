@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { AxiosError, isAxiosError } from "axios";
 
-import type { ScanQrResult, SubmitScanResponse } from "@/types/detail";
+import type { ScanQrResult, ScanResponsePayload } from "@/types/detail";
 import { detailService } from "@/services/features.service";
 
 export function useScanQr() {
@@ -18,7 +18,7 @@ export function useScanQr() {
         return { data: response.data, status: response.status };
       } catch (error) {
         
-        if (isAxiosError<SubmitScanResponse>(error) && error.response) {
+        if (isAxiosError<ScanResponsePayload>(error) && error.response) {
           return { data: error.response.data, status: error.response.status };
         }
 
