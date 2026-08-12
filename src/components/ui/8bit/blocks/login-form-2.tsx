@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/8bit/card";
 import { Input } from "@/components/ui/8bit/input";
 import { Label } from "@/components/ui/8bit/label";
+import { Spinner } from "@/components/ui/8bit/spinner";
 
 import "@/components/ui/8bit/styles/retro.css";
 import { useState } from "react";
@@ -21,7 +22,12 @@ interface CardProps extends React.ComponentPropsWithoutRef<"div"> {
   navLink?: () => void;
   formButtonText?: string;
   confirmPassword?: boolean;
-  handleSubmit: (formData:any) => void;
+  isSubmitting?: boolean;
+  handleSubmit: (formData: {
+    email: string;
+    password: string;
+    confirmPassword: string;
+  }) => void;
 }
 
 export function LoginForm({
@@ -31,6 +37,7 @@ export function LoginForm({
   navLinkText,
   navLink,  
   confirmPassword,
+  isSubmitting = false,
   formButtonText,
   handleSubmit,
   ...props
@@ -90,8 +97,15 @@ export function LoginForm({
                   </div>
                   <Input id="confirmPassword" type="password" required value={formData.confirmPassword} onChange={(e) => handleInputChange(e)} autoComplete="off"/>
                 </div>)}
-                <Button type="button" className="w-full" onClick={handleFormSubmit} disabled={!formData.email || !formData.password || (confirmPassword && !formData.confirmPassword)}>
-                  {formButtonText}
+                <Button
+                  type="button"
+                  className="w-full"
+                  onClick={handleFormSubmit}
+                  disabled={isSubmitting || !formData.email || !formData.password || (confirmPassword && !formData.confirmPassword)}
+                  aria-busy={isSubmitting}
+                >
+                  {isSubmitting && <Spinner variant="diamond" className="size-4" />}
+                  {isSubmitting ? "Logging in..." : formButtonText}
                 </Button>
               </div>
               {(navLink || navLinkText) && (

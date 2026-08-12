@@ -139,6 +139,7 @@ export default function GameRoadmap1({
                       "flex-1",
                       isLocked && "opacity-50",
                       isJunction && "bg-blue-600/40 dark:border-blue-700",
+                      "transition-transform duration-200 hover:-translate-y-0.5",
                     )}
                   >
                     <CardHeader className="pb-2">

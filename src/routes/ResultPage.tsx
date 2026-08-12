@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Crown, Swords, Users } from "lucide-react";
+import { Crown, Loader2, Swords, Users } from "lucide-react";
 
 import { Button } from "@/components/ui/8bit/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/8bit/card";
@@ -24,7 +24,12 @@ const ResultPage = () => {
   }, [code, qrScanMutation]);
 
   if (!code) return <p className="retro text-center text-xs text-destructive">No scan code was provided.</p>;
-  if (qrScanMutation.isPending) return <p className="retro flex min-h-dvh items-center justify-center text-center text-xs">Submitting scan...</p>;
+  if (qrScanMutation.isPending) return (
+    <div className="retro flex min-h-dvh flex-col items-center justify-center gap-4 text-center text-xs">
+      <Loader2 aria-hidden="true" className="size-7 animate-spin text-primary" />
+      <p className="animate-pulse">Submitting scan...</p>
+    </div>
+  );
   if (qrScanMutation.isError) return <p className="retro flex min-h-dvh items-center justify-center text-center text-xs text-destructive">Unable to submit scan. Please try again.</p>;
 
   const resultPayload = qrScanMutation.data?.data;

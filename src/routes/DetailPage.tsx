@@ -1,7 +1,7 @@
 /* eslint-disable react-hooks/static-components */
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Lightbulb } from "lucide-react";
+import { Lightbulb, Loader2 } from "lucide-react";
 
 
 import AnswerInput from "@/components/AnswerInput";
@@ -20,7 +20,12 @@ const DetailPage = () => {
 
   const { data: result, isPending, isError } = useCurrentNode();
 
-  if (isPending) return <p className="retro flex min-h-dvh items-center justify-center text-xs">Loading question...</p>;
+  if (isPending) return (
+    <div className="retro flex min-h-dvh flex-col items-center justify-center gap-4 text-xs">
+      <Loader2 aria-hidden="true" className="size-6 animate-spin text-primary" />
+      <p className="animate-pulse">Loading question...</p>
+    </div>
+  );
   if (isError) return <p className="retro flex min-h-dvh items-center justify-center text-xs text-destructive">Unable to load the current question.</p>;
 
   if (!result?.node) {
@@ -70,8 +75,11 @@ const DetailPage = () => {
               type="button"
             >
               <span className="text-base font-bold">{item.answer}</span>
-              <span className="text-[10px] uppercase tracking-wide">
-                {isEasyWay ? "The Easy Way" : "The Hard Way"}
+              <span className="flex items-center gap-2 text-[10px] uppercase tracking-wide">
+                {isSelected && qrScanMutation.isPending && (
+                  <Loader2 aria-hidden="true" className="size-3 animate-spin" />
+                )}
+                {isSelected && qrScanMutation.isPending ? "Loading path..." : isEasyWay ? "The Easy Way" : "The Hard Way"}
               </span>
             </Button>
           );
