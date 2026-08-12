@@ -4,8 +4,15 @@ import { ENDPOINTS } from "./endpoints";
 import { clearTokens, getAccessToken, getRefreshToken, setTokens } from "@/lib/auth";
 import type { RefreshResponse } from "@/types/auth";
 
+// Strip trailing slashes so manual `${API_BASE_URL}${path}` concatenation
+// (paths always start with "/") never produces a double slash, regardless
+// of whether the deployed env var itself ends in "/". Axios requests via
+// `apiClient` already normalize this internally, but code that builds URLs
+// by hand (token refresh below, the SSE stream) doesn't get that for free.
+export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/+$/, "");
+
 export const apiClient = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL,
+  baseURL: API_BASE_URL,
   timeout: 10000,
   headers: {
     "Content-Type": "application/json",
@@ -39,7 +46,7 @@ function refreshAccessToken(): Promise<string | null> {
 
     try {
       const { data } = await axios.post<RefreshResponse>(
-        `${import.meta.env.VITE_API_BASE_URL}${ENDPOINTS.REFRESH}`,
+        `${API_BASE_URL}${ENDPOINTS.REFRESH}`,
         { refresh: refreshToken }
       );
       setTokens(data);

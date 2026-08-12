@@ -7,6 +7,7 @@ import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/8bit/avatar
 import { Badge } from "@/components/ui/8bit/badge";
 import { Button } from "@/components/ui/8bit/button";
 import { HeartRow } from "@/components/ui/8bit/blocks/pixel-heart";
+import { OneUp } from "@/components/ui/8bit/blocks/one-up";
 import "@/components/ui/8bit/styles/retro.css";
 
 interface HealthBarProps {
@@ -15,6 +16,7 @@ interface HealthBarProps {
   attackHref?: string;
   hearts?: number;
   filledHearts?: number;
+  extraLives?: number;
   totalPoints?: number;
   heartSize?: number;
   attackPoints?: number;
@@ -26,6 +28,7 @@ export default function HealthBar({
   attackHref = "/attack",
   hearts = 5,
   filledHearts = 5,
+  extraLives = 0,
   totalPoints = 0,
   heartSize = 3,
   attackPoints = 0,
@@ -40,7 +43,10 @@ export default function HealthBar({
           </Avatar>
         </Link>
         <div className="h-11 flex flex-col justify-center gap-1">
-          <HeartRow hearts={hearts} filledHearts={filledHearts} heartSize={heartSize} />
+          <div className="flex items-center gap-2">
+            <HeartRow hearts={hearts} filledHearts={filledHearts} heartSize={heartSize} />
+            <OneUp count={extraLives} size={heartSize} />
+          </div>
 
           <div className="flex w-full items-center justify-start gap-2">
             <span className="retro text-[10px] tracking-tight">
