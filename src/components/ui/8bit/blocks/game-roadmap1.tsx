@@ -14,6 +14,7 @@ export interface Quest {
   description: string;
   status: "completed" | "in-progress" | "locked";
   title: string;
+  action: () => void;
 }
 
 interface GameRoadmap1Props {
@@ -34,31 +35,49 @@ const defaultQuests: Quest[] = [
     title: "Gather the Party",
     description: "Recruit your team. A warrior, a mage, and a rogue walk into a tavern. Nobody leaves until the quest is accepted.",
     status: "completed",
+    action: function (): void {
+      throw new Error("Function not implemented.");
+    }
   },
   {
     title: "Cross the Marshlands",
     description: "Navigate the fog. Avoid the swamp trolls. Find the hidden path to the Ember Citadel before nightfall.",
     status: "completed",
+    action: function (): void {
+      throw new Error("Function not implemented.");
+    }
   },
   {
     title: "Siege of Ember Citadel",
     description: "Break through the outer wall. Defeat the skeletal guards. Secure the courtyard for base camp.",
     status: "in-progress",
+    action: function (): void {
+      throw new Error("Function not implemented.");
+    }
   },
   {
     title: "The Underforge",
     description: "Descend into the volcanic tunnels beneath the citadel. The dwarven king awaits — friend or foe, unknown.",
     status: "in-progress",
+    action: function (): void {
+      throw new Error("Function not implemented.");
+    }
   },
   {
     title: "Face the Lich King",
     description: "The final boss awaits in the throne room. Bring fire resistance potions. You will need them.",
     status: "locked",
+    action: function (): void {
+      throw new Error("Function not implemented.");
+    }
   },
   {
     title: "Claim the Crown",
     description: "If you survive, the kingdom is yours. New game plus unlocked. The real adventure begins.",
     status: "locked",
+    action: function (): void {
+      throw new Error("Function not implemented.");
+    }
   },
 ];
 
@@ -93,7 +112,7 @@ export default function GameRoadmap1({
               const isLocked = quest.status === "locked";
 
               return (
-                <div className="relative flex gap-4" key={quest.title}>
+                <div className="relative flex gap-4" key={quest.title} onClick={quest.action}>
                   <div
                     className={cn(
                       "retro relative z-10 flex size-12 shrink-0 items-center justify-center border-2 bg-background text-[10px] font-bold",

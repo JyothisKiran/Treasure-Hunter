@@ -3,6 +3,7 @@ export const ENDPOINTS = {
   SIGNUP: "/auth/users/",
   SCANQR: (id: string) =>  `/nodes/${id}/submit/`,
   CURRENT_NODE: '/nodes/current/',
+  VISITED_NODES: '/nodes/visited/',
   ME: "/auth/users/me/",
   REFRESH: "/auth/jwt/refresh/",
   TARGET_TEAMS: "/nodes/target-teams/",

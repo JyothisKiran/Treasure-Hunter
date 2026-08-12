@@ -21,4 +21,13 @@ export const detailService = {
       { validateStatus: () => true },
     );
   },
+
+  getVisitedNodes() {
+    return apiClient.get<any>(
+      ENDPOINTS.VISITED_NODES,
+      // The API communicates game state (such as "Game not started yet.")
+      // in a 400 response body.
+      { validateStatus: () => true },
+    );
+  },
 };

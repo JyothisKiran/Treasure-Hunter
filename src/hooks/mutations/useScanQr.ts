@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { AxiosError, isAxiosError } from "axios";
 
 import type { ScanQrResult, SubmitScanResponse } from "@/types/detail";
-import { detailService } from "@/services/detail.service";
+import { detailService } from "@/services/features.service";
 
 export function useScanQr() {
   const queryClient = useQueryClient();
