@@ -1,5 +1,5 @@
 /* eslint-disable react-hooks/static-components */
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Lightbulb } from "lucide-react";
 
@@ -20,23 +20,6 @@ const DetailPage = () => {
 
   const { data: result, isPending, isError } = useCurrentNode();
 
-  useEffect(() => {
-
-    if (selectedAnswer !== null) {
-
-      qrScanMutation.mutate(selectedAnswer.toString())
-      if (qrScanMutation.isSuccess) {
-        navigate('/detail')
-      }
-      if (qrScanMutation.isError) {
-        toast("An Error occured. Please try again")
-      }
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  },[selectedAnswer])
-
-
-
   if (isPending) return <p className="retro flex min-h-dvh items-center justify-center text-xs">Loading question...</p>;
   if (isError) return <p className="retro flex min-h-dvh items-center justify-center text-xs text-destructive">Unable to load the current question.</p>;
 
@@ -53,6 +36,18 @@ const DetailPage = () => {
   }
 
   const { node } = result;
+  const handleAnswerSelect = (answerId: number) => {
+    setSelectedAnswer(answerId);
+    qrScanMutation.mutate(answerId.toString(), {
+      onSuccess: () => {
+        localStorage.setItem(String(node.id), String(answerId));
+        navigate("/detail");
+      },
+      onError: () => {
+        toast("An Error occured. Please try again");
+      },
+    });
+  };
 
   const JunctionOptions = ({ answers }: { answers: NodeAnswer[] }) => {
     return(
@@ -70,7 +65,8 @@ const DetailPage = () => {
                   : "bg-red-100 text-red-950 hover:bg-red-200 dark:bg-red-900/60 dark:text-red-50 dark:hover:bg-red-900/80"
               } ${isSelected ? "ring-2 ring-offset-2" : ""}`}
               key={item.id}
-              onClick={() => setSelectedAnswer(item.id)}
+              disabled={qrScanMutation.isPending}
+              onClick={() => handleAnswerSelect(item.id)}
               type="button"
             >
               <span className="text-base font-bold">{item.answer}</span>

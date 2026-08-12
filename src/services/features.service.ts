@@ -22,12 +22,15 @@ export const detailService = {
     );
   },
 
-  getVisitedNodes() {
+  getVisitedNodes(path?: string | null) {
     return apiClient.get<any>(
       ENDPOINTS.VISITED_NODES,
       // The API communicates game state (such as "Game not started yet.")
       // in a 400 response body.
-      { validateStatus: () => true },
+      {
+        validateStatus: () => true,
+        params: path ? { path } : undefined,
+      },
     );
   },
 };
