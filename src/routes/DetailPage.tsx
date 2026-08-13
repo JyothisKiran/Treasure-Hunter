@@ -60,6 +60,7 @@ const DetailPage = () => {
         {answers.map((item) => {
           const isEasyWay = item.is_nearest;
           const isSelected = selectedAnswer === item.id;
+          const savedPath = localStorage.getItem(String(node.id))?.trim();
 
           return (
             <Button
@@ -70,7 +71,7 @@ const DetailPage = () => {
                   : "bg-red-100 text-red-950 hover:bg-red-200 dark:bg-red-900/60 dark:text-red-50 dark:hover:bg-red-900/80"
               } ${isSelected ? "ring-2 ring-offset-2" : ""}`}
               key={item.id}
-              disabled={qrScanMutation.isPending}
+              disabled={qrScanMutation.isPending || (savedPath === String(item.id))}
               onClick={() => handleAnswerSelect(item.id)}
               type="button"
             >
@@ -81,6 +82,8 @@ const DetailPage = () => {
                 )}
                 {isSelected && qrScanMutation.isPending ? "Loading path..." : isEasyWay ? "The Easy Way" : "The Hard Way"}
               </span>
+              {/* disabled visited path on reaching the junction again to avoid loops */}
+              {(savedPath === String(item.id)) && <span className="flex items-center gap-2 text-[8px]">(Already visited)</span>}
             </Button>
           );
         })}

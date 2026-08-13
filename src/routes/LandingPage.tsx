@@ -43,15 +43,16 @@ const LandingPage = () => {
     if (node.status === "in-progress") {
       navigate("/detail");
     } else if (node.status === "completed") {
+      // check if already a child is visited
       const savedPath = localStorage.getItem(String(node.id))?.trim();
-
+      // if visited show that path
       if (savedPath) {
         setSelectedPath(savedPath);
         setSelectedJunction(null);
         toast("Loading your saved path...");
         return;
       }
-
+      // Otherwise, show the available paths.
       setSelectedPath(null);
       setSelectedJunction(node);
     }
