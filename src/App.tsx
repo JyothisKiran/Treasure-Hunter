@@ -14,6 +14,7 @@ import GameOverPage from "./routes/GameOverPage";
 import RequireAuth from "./routes/guards/RequireAuth";
 import RequireGuest from "./routes/guards/RequireGuest";
 import ResultPage from "./routes/ResultPage";
+import VictoryPage from "./routes/VictoryPage";
 
 function HomePage() {
   const navigate = useNavigate();
@@ -48,6 +49,7 @@ export default function App() {
             </Route>
             <Route element={<RequireAuth />}>
               <Route path="/game-over" element={<GameOverPage />} />
+              <Route path="/victory" element={<VictoryPage />} />
               <Route element={<GameLayout />}>
                 <Route path="/landing" element={<LandingPage />} />
                 <Route path="/scan" element={<ScannerPage />} />
