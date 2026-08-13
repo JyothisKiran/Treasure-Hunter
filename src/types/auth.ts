@@ -43,6 +43,7 @@ export interface Team {
   life: number;
   attack: number;
   members: TeamMember[];
+  is_won: boolean;
 }
 
 export interface MeResponse {

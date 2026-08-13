@@ -41,6 +41,7 @@ const LoginPage = () => {
             navLinkText="Sign Up"
             navLink={() => navigate("/signup")}
             formButtonText="Login"
+            isSubmitting={loginMutation.isPending}
             handleSubmit={(formData) => handleLogin(formData)}
           />
         </div>

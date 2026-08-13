@@ -25,6 +25,10 @@ export default function GameLayout() {
     prevLifeRef.current = team.life;
   }, [team]);
 
+  if (team && team?.is_won) {
+    return <Navigate to="/victory" replace />;
+  }
+
   if (team && team.life === 0) {
     return <Navigate to="/game-over" replace />;
   }

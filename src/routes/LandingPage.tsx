@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/8bit/button";
 import GameRoadmap1, {
@@ -42,15 +43,16 @@ const LandingPage = () => {
     if (node.status === "in-progress") {
       navigate("/detail");
     } else if (node.status === "completed") {
+      // check if already a child is visited
       const savedPath = localStorage.getItem(String(node.id))?.trim();
-
+      // if visited show that path
       if (savedPath) {
         setSelectedPath(savedPath);
         setSelectedJunction(null);
         toast("Loading your saved path...");
         return;
       }
-
+      // Otherwise, show the available paths.
       setSelectedPath(null);
       setSelectedJunction(node);
     }
@@ -74,9 +76,10 @@ const LandingPage = () => {
   return (
     <>
       {isPending ? (
-        <p className="retro flex min-h-dvh items-center justify-center text-xs">
-          Loading quest map...
-        </p>
+        <div className="retro flex min-h-dvh flex-col items-center justify-center gap-4 text-xs">
+          <Loader2 aria-hidden="true" className="size-6 animate-spin text-primary" />
+          <p className="animate-pulse">Loading quest map...</p>
+        </div>
       ) : isError ? (
         <p className="retro flex min-h-dvh items-center justify-center text-xs text-destructive">
           Unable to load the quest map.
