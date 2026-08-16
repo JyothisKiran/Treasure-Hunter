@@ -9,6 +9,9 @@ This binary adds the game rules and the endpoints the frontend calls.
 
 ## Run
 
+`npm run dev` in the repo root starts this alongside the frontend and stops both
+together. On its own:
+
 ```sh
 go run . serve --http=127.0.0.1:8090      # migrations are applied on startup
 go run . superuser upsert admin@example.com <password>   # admin UI at /_/
