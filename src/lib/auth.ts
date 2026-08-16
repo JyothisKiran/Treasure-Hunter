@@ -1,22 +1,19 @@
-const ACCESS_TOKEN_KEY = "access";
-const REFRESH_TOKEN_KEY = "refresh";
+import { pb } from "@/api/client";
+
+// The auth token lives in PocketBase's own auth store, which persists it to
+// localStorage and keeps it in sync with every auth/refresh call the SDK makes.
+// These helpers are the rest of the app's view of it.
 
 export function getAccessToken() {
-  return localStorage.getItem(ACCESS_TOKEN_KEY);
+  return pb.authStore.token || null;
 }
 
-export function getRefreshToken() {
-  return localStorage.getItem(REFRESH_TOKEN_KEY);
-}
-
-export function setTokens({ access, refresh }: { access: string; refresh?: string }) {
-  localStorage.setItem(ACCESS_TOKEN_KEY, access);
-  if (refresh) {
-    localStorage.setItem(REFRESH_TOKEN_KEY, refresh);
+export function setTokens({ access }: { access: string }) {
+  if (access !== pb.authStore.token) {
+    pb.authStore.save(access, pb.authStore.record);
   }
 }
 
 export function clearTokens() {
-  localStorage.removeItem(ACCESS_TOKEN_KEY);
-  localStorage.removeItem(REFRESH_TOKEN_KEY);
+  pb.authStore.clear();
 }

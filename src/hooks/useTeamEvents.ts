@@ -1,23 +1,25 @@
 import { useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import type { RecordSubscription } from "pocketbase";
 
-import { API_BASE_URL } from "@/api/client";
+import { pb } from "@/api/client";
+import { TEAMS_COLLECTION } from "@/api/endpoints";
 import { getAccessToken } from "@/lib/auth";
 import { toast } from "@/components/ui/8bit/toast";
-import { teamService } from "@/services/team.service";
-import type { MeResponse, TeamEventPayload } from "@/types/auth";
+import type { MeResponse, TeamRecord } from "@/types/auth";
 
-const RECONNECT_DELAY_MS = 3000;
-
-/** Live team state (life/score/attack) via Server-Sent Events, so attacks
- * from other teams show up without polling or a manual refresh.
+/** Live team state (life/score/attack) over PocketBase's realtime API, so
+ * attacks from other teams show up without polling or a manual refresh.
  *
- * The JWT never travels in the URL: each connection attempt first swaps it
- * for a short-lived, single-use ticket (see team.service#getStreamTicket),
- * and only that ticket goes in the EventSource URL. Because a ticket is
- * single-use, a dropped connection needs a fresh one before reconnecting -
- * EventSource's built-in auto-reconnect (same URL) won't work here, so
- * reconnection is driven manually. */
+ * Subscribing to the whole `teams` collection is safe: its view rule is
+ * `@request.auth.team = id`, so the server only ever pushes the caller's own
+ * team. The SDK authenticates the subscription with the stored auth token and
+ * handles reconnection itself.
+ *
+ * The numbers ride along on the record; `last_event` carries the message for
+ * the toast. Because *any* write to the team re-broadcasts the whole record
+ * (a score change on scan, say), a notification is only new when its `seq`
+ * advances - which is why the current seq is read once up front. */
 export function useTeamEvents() {
   const queryClient = useQueryClient();
 
@@ -25,61 +27,51 @@ export function useTeamEvents() {
     if (!getAccessToken()) return;
 
     let cancelled = false;
-    let source: EventSource | null = null;
-    let reconnectTimeout: ReturnType<typeof setTimeout>;
+    let unsubscribe: (() => void) | undefined;
+    let lastSeq = 0;
 
-    const applyUpdate = (event: MessageEvent) => {
-      const payload = JSON.parse(event.data) as TeamEventPayload;
-      queryClient.setQueryData<MeResponse>(["me"], (prev) => {
-        if (!prev) return prev;
+    const handle = ({ record }: RecordSubscription<TeamRecord>) => {
+      queryClient.setQueryData<MeResponse>(["me"], (previous) => {
+        if (!previous) return previous;
         return {
-          ...prev,
+          ...previous,
           team: {
-            ...prev.team,
-            life: payload.life,
-            score: payload.score,
-            attack: payload.attack,
+            ...previous.team,
+            life: record.life,
+            score: record.score,
+            attack: record.attack,
           },
         };
       });
-      return payload;
-    };
 
-    const scheduleReconnect = () => {
-      source?.close();
-      source = null;
-      if (cancelled) return;
-      reconnectTimeout = setTimeout(connect, RECONNECT_DELAY_MS);
+      const event = record.last_event;
+      if (!event?.seq || event.seq <= lastSeq) return;
+      lastSeq = event.seq;
+      if (event.kind === "team_attacked") {
+        toast(event.detail);
+      }
     };
 
     const connect = async () => {
-      if (cancelled) return;
       try {
-        const { data } = await teamService.getStreamTicket();
-        if (cancelled) return;
-
-        const url = `${API_BASE_URL}/teams/stream/?ticket=${encodeURIComponent(data.ticket)}`;
-        source = new EventSource(url);
-
-        source.addEventListener("team_attacked", (event) => {
-          const payload = applyUpdate(event as MessageEvent);
-          toast(payload.detail);
-        });
-        source.addEventListener("team_update", (event) => {
-          applyUpdate(event as MessageEvent);
-        });
-        source.onerror = scheduleReconnect;
+        const team = await pb.collection(TEAMS_COLLECTION).getFirstListItem<TeamRecord>("");
+        lastSeq = team.last_event?.seq ?? 0;
       } catch {
-        scheduleReconnect();
+        // No team yet (or it can't be read): start from scratch rather than
+        // giving up on the subscription.
+        lastSeq = 0;
       }
+      if (cancelled) return;
+
+      unsubscribe = await pb.collection(TEAMS_COLLECTION).subscribe<TeamRecord>("*", handle);
+      if (cancelled) unsubscribe();
     };
 
     connect();
 
     return () => {
       cancelled = true;
-      clearTimeout(reconnectTimeout);
-      source?.close();
+      unsubscribe?.();
     };
   }, [queryClient]);
 }

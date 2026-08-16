@@ -4,8 +4,9 @@ export interface LoginRequest {
 }
 
 export interface LoginResponse {
+  /** PocketBase issues a single auth token; it is renewed in place via
+   * auth-refresh rather than exchanged for a separate refresh token. */
   access: string;
-  refresh: string;
 }
 
 export interface SignupRequest {
@@ -79,24 +80,24 @@ export interface TargetAttackResponse {
   };
 }
 
-export interface StreamTicketResponse {
-  ticket: string;
-}
-
+/** The notification stamped onto a team by the backend, delivered with the
+ * record over PocketBase's realtime feed. */
 export interface TeamEventPayload {
-  life: number;
-  score: number;
-  attack: number;
+  seq: number;
+  kind: "team_attacked" | "team_update";
   detail: string;
   attacked_by?: string;
   damage?: number;
 }
 
-export interface RefreshRequest {
-  refresh: string;
-}
-
-export interface RefreshResponse {
-  access: string;
-  refresh: string;
+/** A `teams` record as PocketBase pushes it (raw collection fields, not the
+ * shaped `Team` the /api/me endpoint returns). */
+export interface TeamRecord {
+  id: string;
+  name: string;
+  life: number;
+  score: number;
+  attack: number;
+  is_won: boolean;
+  last_event?: TeamEventPayload;
 }

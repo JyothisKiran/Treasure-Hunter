@@ -1,5 +1,5 @@
 import { useMutation } from "@tanstack/react-query";
-import { AxiosError } from "axios";
+import type { ApiError } from "@/api/client";
 
 import { authService } from "@/services/auth.service";
 import type { SignupResponse, SignupRequest, SignupErrorResponse } from "@/types/auth";
@@ -8,7 +8,7 @@ import type { SignupResponse, SignupRequest, SignupErrorResponse } from "@/types
 export function useSignup() {
   return useMutation<
     SignupResponse,
-    AxiosError<SignupErrorResponse>,
+    ApiError<SignupErrorResponse>,
     SignupRequest
   >({
     mutationFn: async (data) => {

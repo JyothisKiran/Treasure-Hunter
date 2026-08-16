@@ -1,0 +1,8 @@
+# PocketBase's data directory (SQLite databases, uploads, backups)
+pb_data/
+
+# JS migrations written by the admin UI; the schema lives in ./migrations
+pb_migrations/
+
+# Build output
+/pb

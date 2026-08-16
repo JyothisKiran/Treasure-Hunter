@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { AxiosError } from "axios";
+import type { ApiError } from "@/api/client";
 
 import { teamService } from "@/services/team.service";
 import type { TargetAttackRequest, TargetAttackResponse } from "@/types/auth";
@@ -7,7 +7,7 @@ import type { TargetAttackRequest, TargetAttackResponse } from "@/types/auth";
 export function useTargetAttack() {
   const queryClient = useQueryClient();
 
-  return useMutation<TargetAttackResponse, AxiosError<TargetAttackResponse>, TargetAttackRequest>({
+  return useMutation<TargetAttackResponse, ApiError<TargetAttackResponse>, TargetAttackRequest>({
     mutationFn: async (data) => {
       const response = await teamService.targetAttack(data);
       return response.data;

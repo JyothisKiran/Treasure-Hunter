@@ -1,88 +1,133 @@
-import axios, { type AxiosRequestConfig } from "axios";
+import PocketBase, { ClientResponseError } from "pocketbase";
 
-import { ENDPOINTS } from "./endpoints";
-import { clearTokens, getAccessToken, getRefreshToken, setTokens } from "@/lib/auth";
-import type { RefreshResponse } from "@/types/auth";
+// Strip trailing slashes so the SDK's own concatenation never produces a
+// double slash, regardless of whether the deployed env var ends in "/".
+export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8090").replace(/\/+$/, "");
 
-// Strip trailing slashes so manual `${API_BASE_URL}${path}` concatenation
-// (paths always start with "/") never produces a double slash, regardless
-// of whether the deployed env var itself ends in "/". Axios requests via
-// `apiClient` already normalize this internally, but code that builds URLs
-// by hand (token refresh below, the SSE stream) doesn't get that for free.
-export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/+$/, "");
+export const pb = new PocketBase(API_BASE_URL);
 
-export const apiClient = axios.create({
-  baseURL: API_BASE_URL,
-  timeout: 10000,
-  headers: {
-    "Content-Type": "application/json",
-  },
-});
+// The SDK cancels an in-flight request when an identical one is issued, which
+// is exactly what React Query does on refetch/remount - leaving the caller with
+// a spurious "autocancelled" rejection instead of data.
+pb.autoCancellation(false);
 
-apiClient.interceptors.request.use(
-  (config) => {
-    const accessToken = getAccessToken();
-    if (accessToken) {
-      config.headers.Authorization = `Bearer ${accessToken}`;
+/** Mirrors the axios response shape the service layer used to hand back, so
+ * the query and mutation hooks stay unchanged. */
+export interface ApiResponse<T> {
+  data: T;
+  status: number;
+}
+
+/** Errors are re-thrown in the shape the UI already reads
+ * (`error.response.data.detail`), rather than PocketBase's ClientResponseError. */
+export class ApiError<T = unknown> extends Error {
+  readonly status: number;
+  readonly response?: { data: T; status: number };
+
+  constructor(message: string, status: number, data?: T) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    if (data !== undefined) {
+      this.response = { data, status };
     }
-    return config;
-  },
-  (error) => Promise.reject(error),
-);
+  }
+}
 
 function logout() {
-  clearTokens();
+  pb.authStore.clear();
   if (window.location.pathname !== "/login") {
     window.location.assign("/login");
   }
 }
 
-let refreshPromise: Promise<string | null> | null = null;
+let refreshPromise: Promise<boolean> | null = null;
 
-function refreshAccessToken(): Promise<string | null> {
-  refreshPromise ??= (async () => {
-    const refreshToken = getRefreshToken();
-    if (!refreshToken) return null;
-
-    try {
-      const { data } = await axios.post<RefreshResponse>(
-        `${API_BASE_URL}${ENDPOINTS.REFRESH}`,
-        { refresh: refreshToken }
-      );
-      setTokens(data);
-      return data.access;
-    } catch {
-      return null;
-    }
-  })().finally(() => {
-    refreshPromise = null;
-  });
+/** PocketBase has no separate refresh token: a still-valid auth token is
+ * swapped for a fresh one. Shared across concurrent 401s so a burst of
+ * requests only triggers a single refresh. */
+function refreshAuth(): Promise<boolean> {
+  refreshPromise ??= pb
+    .collection("users")
+    .authRefresh()
+    .then(() => true)
+    .catch(() => false)
+    .finally(() => {
+      refreshPromise = null;
+    });
 
   return refreshPromise;
 }
 
-apiClient.interceptors.response.use(
-  (response) => response,
-  async (error) => {
-    const originalRequest = error.config as (AxiosRequestConfig & { _retry?: boolean }) | undefined;
-    const isAuthRequest =
-      originalRequest?.url === ENDPOINTS.REFRESH || originalRequest?.url === ENDPOINTS.LOGIN;
+interface RequestOptions {
+  method?: string;
+  body?: unknown;
+  query?: Record<string, unknown>;
+  /** Resolve instead of throwing on 4xx, for the endpoints that communicate
+   * game state ("Game not started yet.", "Wrong answer") in an error body. */
+  acceptErrorBody?: boolean;
+}
 
-    if (error.response?.status === 401 && originalRequest && !originalRequest._retry && !isAuthRequest) {
-      originalRequest._retry = true;
-      const newAccessToken = await refreshAccessToken();
+/** Calls one of the backend's custom game routes and normalizes the result.
+ * PocketBase's own collection/auth endpoints are called through `pb` directly. */
+export async function request<T>(path: string, options: RequestOptions = {}): Promise<ApiResponse<T>> {
+  const { method = "GET", body, query, acceptErrorBody = false } = options;
 
-      if (newAccessToken) {
-        originalRequest.headers = {
-          ...originalRequest.headers,
-          Authorization: `Bearer ${newAccessToken}`,
-        };
-        return apiClient(originalRequest);
+  const send = () =>
+    pb.send<T>(path, {
+      method,
+      body,
+      query,
+      // Without this the SDK caches by URL and cancels the previous call.
+      requestKey: null,
+    });
+
+  try {
+    return { data: await send(), status: 200 };
+  } catch (error) {
+    if (!(error instanceof ClientResponseError)) throw error;
+
+    // Refresh is attempted for any stored token, not just an unexpired one:
+    // a token PocketBase has already rejected is exactly the case where the
+    // session needs to be either renewed or ended.
+    if (error.status === 401 && pb.authStore.token) {
+      if (await refreshAuth()) {
+        try {
+          return { data: await send(), status: 200 };
+        } catch (retryError) {
+          if (!(retryError instanceof ClientResponseError)) throw retryError;
+          return handleFailure<T>(retryError, acceptErrorBody);
+        }
       }
-
       logout();
     }
 
-    return Promise.reject(error);
+    return handleFailure<T>(error, acceptErrorBody);
   }
-);
+}
+
+function handleFailure<T>(error: ClientResponseError, acceptErrorBody: boolean): ApiResponse<T> {
+  if (acceptErrorBody && error.status >= 400 && error.status < 500) {
+    return { data: error.response as T, status: error.status };
+  }
+  throw toApiError(error);
+}
+
+/** Unwraps a PocketBase error into the `{ detail }` body the UI expects.
+ * Custom routes already answer with `detail`; PocketBase's own endpoints use
+ * `message`, so that gets mapped across. */
+export function toApiError<T = unknown>(
+  error: unknown,
+  mapBody?: (body: Record<string, unknown>, message: string) => T,
+): ApiError<T> {
+  if (!(error instanceof ClientResponseError)) {
+    const message = error instanceof Error ? error.message : "Request failed.";
+    return new ApiError<T>(message, 0);
+  }
+
+  const body = (error.response ?? {}) as Record<string, unknown>;
+  const message = (body.detail as string) ?? error.response?.message ?? error.message;
+  const data = mapBody ? mapBody(body, message) : ({ detail: message, ...body } as T);
+
+  return new ApiError<T>(message, error.status, data);
+}
