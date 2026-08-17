@@ -6,3 +6,6 @@ pb_migrations/
 
 # Build output
 /pb
+
+# The compiled frontend, copied in by `npm run deploy`
+pb_public/

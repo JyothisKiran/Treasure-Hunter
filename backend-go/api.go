@@ -1,7 +1,10 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/apis"
@@ -26,7 +29,32 @@ func registerRoutes(e *core.ServeEvent) error {
 	e.Router.POST("/api/nodes/target-attack", handleTargetAttack).Bind(auth)
 	e.Router.POST("/api/nodes/{id}/submit", handleSubmit).Bind(auth)
 
+	// The built frontend, when there is one (see `npm run deploy`). The catch-all
+	// is matched only after the /api routes above and PocketBase's own, and the
+	// index fallback is what makes the client-side router's pretty URLs survive
+	// a page reload.
+	if publicDir := publicDir(); publicDir != "" {
+		e.Router.GET("/{path...}", apis.Static(os.DirFS(publicDir), true))
+	}
+
 	return e.Next()
+}
+
+// publicDir locates the static frontend next to the binary, mirroring where
+// PocketBase's own prebuilt executable looks. Returns "" when the directory is
+// absent, so an API-only run (`go run .`, dev mode) stays unaffected.
+func publicDir() string {
+	dir := "./pb_public"
+	// Under `go run` the binary lives in a temp dir; fall back to the cwd.
+	if !strings.HasPrefix(os.Args[0], os.TempDir()) {
+		dir = filepath.Join(filepath.Dir(os.Args[0]), "pb_public")
+	}
+
+	if stat, err := os.Stat(dir); err != nil || !stat.IsDir() {
+		return ""
+	}
+
+	return dir
 }
 
 // handleMe returns the caller plus their team, the shape the frontend's `me`

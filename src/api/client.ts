@@ -2,7 +2,11 @@ import PocketBase, { ClientResponseError } from "pocketbase";
 
 // Strip trailing slashes so the SDK's own concatenation never produces a
 // double slash, regardless of whether the deployed env var ends in "/".
-export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8090").replace(/\/+$/, "");
+// A bare "/" survives the strip: that is the same-origin build (the frontend
+// served by PocketBase itself), and an empty base would make the SDK resolve
+// requests against the current route instead of the site root.
+export const API_BASE_URL =
+  (import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8090").replace(/\/+$/, "") || "/";
 
 export const pb = new PocketBase(API_BASE_URL);
 

@@ -8,6 +8,10 @@
     "dev:web": "vite --host 0.0.0.0",
     "dev:api": "cd backend-go && go build -o pb . && ./pb serve --http=0.0.0.0:8090",
     "build": "tsc -b && vite build",
+    "build:web": "tsc -b && VITE_API_BASE_URL=/ vite build --outDir backend-go/pb_public --emptyOutDir",
+    "build:api": "cd backend-go && go build -o pb .",
+    "deploy": "npm run build:web && npm run build:api",
+    "prod": "cd backend-go && ./pb serve --http=0.0.0.0:8000",
     "lint": "eslint .",
     "preview": "vite preview"
   },

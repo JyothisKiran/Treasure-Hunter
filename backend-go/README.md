@@ -36,7 +36,22 @@ every SQL statement:
 go build -o pb . && ./pb serve --http=127.0.0.1:8090
 ```
 
-## API
+## Deploy
+
+One process serves everything. From the repo root:
+
+```sh
+npm run deploy   # builds the frontend into backend-go/pb_public, then builds ./pb
+npm run prod     # ./pb serve --http=0.0.0.0:8000
+```
+
+The app is then on `http://<host>:8000`, the admin UI on `/_/`. The frontend is
+built with `VITE_API_BASE_URL=/` so it calls the server it was served from —
+no CORS, no second port, and `.env` is only for the split dev setup.
+
+`pb_public` is served by the catch-all route in [api.go](api.go) with an index
+fallback, so client-side routes survive a reload. The directory is resolved next
+to the binary and skipped when absent, which is why `go run .` stays API-only.
 
 Auth and realtime are PocketBase's own endpoints:
 
