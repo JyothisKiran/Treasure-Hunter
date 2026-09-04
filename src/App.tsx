@@ -15,6 +15,7 @@ import RequireAuth from "./routes/guards/RequireAuth";
 import RequireGuest from "./routes/guards/RequireGuest";
 import ResultPage from "./routes/ResultPage";
 import VictoryPage from "./routes/VictoryPage";
+import MapMakerPage from "./routes/MapMakerPage";
 
 function HomePage() {
   const navigate = useNavigate();
@@ -46,6 +47,7 @@ export default function App() {
               <Route path="/" element={<HomePage />} />
               <Route path="/login" element={<LoginPage />} />
               <Route path="/signup" element={<SignUp />} />
+              <Route path="/map-maker" element={<MapMakerPage />} />
             </Route>
             <Route element={<RequireAuth />}>
               <Route path="/game-over" element={<GameOverPage />} />
