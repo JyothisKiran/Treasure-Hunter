@@ -113,6 +113,13 @@
   box-sizing: border-box;
 }
 
+#root:has(.map-maker-workspace) {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  border-inline: none;
+}
+
 body {
   margin: 0;
 }
