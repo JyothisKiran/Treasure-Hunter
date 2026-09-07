@@ -32,6 +32,31 @@ const DEFAULT_MAP: TreasureMap = {
 type DraftNode = { type: MapNodeType; question: string; answer: string };
 const EMPTY_DRAFT: DraftNode = { type: "NODE", question: "", answer: "" };
 
+interface SaveFilePickerOptions {
+  suggestedName: string;
+  types: Array<{
+    description: string;
+    accept: Record<string, string[]>;
+  }>;
+}
+
+interface FileSystemWritableFileStreamLike {
+  write(data: string): Promise<void>;
+  close(): Promise<void>;
+}
+
+interface FileSystemFileHandleLike {
+  createWritable(): Promise<FileSystemWritableFileStreamLike>;
+}
+
+type SaveFilePicker = (
+  options: SaveFilePickerOptions,
+) => Promise<FileSystemFileHandleLike>;
+
+type WindowWithSaveFilePicker = Window & {
+  showSaveFilePicker?: SaveFilePicker;
+};
+
 function isMapNode(value: unknown): value is MapNode {
   if (!value || typeof value !== "object") return false;
   const node = value as Partial<MapNode>;
@@ -434,16 +459,51 @@ export default function MapMakerPage() {
     toast("Nodes connected");
   };
 
-  const exportMap = () => {
+  const exportMap = async () => {
+    const filename = `${map.name.toLowerCase().replace(/[^a-z0-9]+/g, "-") || "treasure-map"}.json`;
+    const content = JSON.stringify(map, null, 2);
+    const saveFilePicker = (window as WindowWithSaveFilePicker)
+      .showSaveFilePicker;
+
+    if (saveFilePicker) {
+      try {
+        const fileHandle = await saveFilePicker({
+          suggestedName: filename,
+          types: [
+            {
+              description: "JSON files",
+              accept: { "application/json": [".json"] },
+            },
+          ],
+        });
+        const writable = await fileHandle.createWritable();
+        await writable.write(content);
+        await writable.close();
+        toast("Map JSON saved successfully");
+      } catch (error: unknown) {
+        if (error instanceof DOMException && error.name === "AbortError")
+          return;
+        toast("Failed to save map JSON");
+      }
+      return;
+    }
+
     const url = URL.createObjectURL(
-      new Blob([JSON.stringify(map, null, 2)], { type: "application/json" }),
+      new Blob([content], { type: "application/json" }),
     );
     const link = document.createElement("a");
     link.href = url;
-    link.download = `${map.name.toLowerCase().replace(/[^a-z0-9]+/g, "-") || "treasure-map"}.json`;
-    link.click();
-    URL.revokeObjectURL(url);
-    toast("Map JSON exported");
+    link.download = filename;
+    try {
+      document.body.appendChild(link);
+      link.click();
+      toast("Map JSON download started");
+    } catch {
+      toast("Failed to save map JSON");
+    } finally {
+      link.remove();
+      URL.revokeObjectURL(url);
+    }
   };
 
   const importMap = async (file: File) => {
@@ -514,7 +574,7 @@ export default function MapMakerPage() {
             <p className="m-0 text-sm text-amber-100">MAP MAKER</p>
           </div>
           <div className="flex flex-wrap gap-2 sm:gap-3">
-            <Button onClick={() => fileInputRef.current?.click()} type="button">
+            <Button onClick={() => fileInputRef.current?.click()} size="compact" type="button">
               <Upload className="size-4" /> IMPORT
             </Button>
             <input
@@ -528,7 +588,7 @@ export default function MapMakerPage() {
               ref={fileInputRef}
               type="file"
             />
-            <Button onClick={exportMap} type="button">
+            <Button onClick={exportMap} size="compact" type="button">
               <Download className="size-4" /> EXPORT JSON
             </Button>
           </div>
@@ -545,6 +605,7 @@ export default function MapMakerPage() {
               onChange={(event) =>
                 setMap((current) => ({ ...current, name: event.target.value }))
               }
+              size="compact"
               value={map.name}
             />
             <span className="text-[9px] text-cyan-200">
@@ -621,12 +682,15 @@ export default function MapMakerPage() {
                 const isSelected = node.id === selectedNodeId;
                 const isSource = node.id === connectionSourceId;
                 return (
-                  <article
-                    className={`absolute w-55 -translate-x-1/2 -translate-y-1/2 border-4 p-3 pr-8 ${node.type === "JUNCTION" ? "border-fuchsia-300 bg-fuchsia-950 text-fuchsia-100" : "border-emerald-300 bg-emerald-950 text-emerald-100"} ${isSelected ? "z-10 ring-4 ring-amber-300" : ""} ${isSource ? "ring-4 ring-cyan-300" : ""}`}
+                  <div
+                    className="absolute -translate-x-1/2 -translate-y-1/2"
                     key={node.id}
                     style={{ left: node.x, top: node.y }}
                   >
-                    <div className="relative">
+                    <article
+                      className={`relative w-55 border-4 ${node.type === "JUNCTION" ? "border-fuchsia-300 bg-fuchsia-950 text-fuchsia-100" : "border-emerald-300 bg-emerald-950 text-emerald-100"} ${isSelected ? "z-10 ring-4 ring-amber-300" : ""} ${isSource ? "ring-4 ring-cyan-300" : ""}`}
+                    >
+                      <div className="p-3 pr-8">
                       <button
                         aria-label={`Select ${node.type} ${node.id}`}
                         className="block w-full text-left"
@@ -651,7 +715,7 @@ export default function MapMakerPage() {
                       </button>
                       <button
                         aria-label={`Drag ${node.type} ${node.id}`}
-                        className="absolute right-1 top-1/2 h-18 w-3 -translate-y-1/2 cursor-grab border border-slate-400 bg-slate-500/80 active:cursor-grabbing"
+                        className="absolute right-0 top-0 bottom-0 w-6 cursor-grab border border-slate-400 bg-slate-500/80 active:cursor-grabbing"
                         data-drag-handle
                         onPointerDown={(event) => startNodeDrag(event, node)}
                         onPointerMove={handleCanvasPointerMove}
@@ -690,8 +754,9 @@ export default function MapMakerPage() {
                           </button>
                         </div>
                       )}
-                    </div>
-                  </article>
+                      </div>
+                    </article>
+                  </div>
                 );
               })}
             </div>
@@ -710,7 +775,7 @@ export default function MapMakerPage() {
             {map.nodes.length > 0 && (
               <button
                 aria-label="Add node"
-                className="absolute left-3 top-3 flex size-10 items-center justify-center border-2 border-emerald-300 bg-slate-950/90 text-emerald-200"
+                className="absolute left-3 top-3 flex size-9 items-center justify-center border-2 border-emerald-300 bg-slate-950/90 text-emerald-200"
                 onClick={openAddDialog}
                 title="Add node"
                 type="button"
@@ -718,28 +783,28 @@ export default function MapMakerPage() {
                 <Plus className="size-4" />
               </button>
             )}
-            <div className="absolute right-3 top-3 flex items-center gap-2 border-2 border-cyan-600 bg-slate-950/90 p-2">
+            <div className="absolute right-3 top-3 flex items-center gap-1.5 border-2 border-cyan-600 bg-slate-950/90 p-1.5">
               <button
                 aria-label="Zoom out"
-                className="flex size-8 items-center justify-center border border-cyan-400 text-cyan-200"
+                className="flex size-7 items-center justify-center border border-cyan-400 text-cyan-200"
                 onClick={() => setZoomAt(zoom - 0.15)}
                 type="button"
               >
-                <Minus className="size-4" />
+                <Minus className="size-3.5" />
               </button>
-              <span className="min-w-12 text-center text-[9px] text-cyan-200">
+              <span className="min-w-11 text-center text-[8px] text-cyan-200">
                 {Math.round(zoom * 100)}%
               </span>
               <button
                 aria-label="Zoom in"
-                className="flex size-8 items-center justify-center border border-cyan-400 text-cyan-200"
+                className="flex size-7 items-center justify-center border border-cyan-400 text-cyan-200"
                 onClick={() => setZoomAt(zoom + 0.15)}
                 type="button"
               >
-                <Plus className="size-4" />
+                <Plus className="size-3.5" />
               </button>
               <button
-                className="border border-amber-400 px-2 py-1 text-[8px] text-amber-200"
+                className="border border-amber-400 px-1.5 py-1 text-[7px] text-amber-200"
                 onClick={resetView}
                 type="button"
               >
@@ -759,13 +824,14 @@ export default function MapMakerPage() {
               {selectedEdge && (
                 <Button
                   onClick={deleteConnection}
+                  size="compact"
                   type="button"
                   variant="outline"
                 >
                   <Trash2 className="size-3" /> REMOVE LINK
                 </Button>
               )}
-              <Button onClick={resetMap} type="button" variant="outline">
+              <Button onClick={resetMap} size="compact" type="button" variant="outline">
                 <RotateCcw className="size-3" /> CLEAR
               </Button>
             </div>
@@ -798,7 +864,7 @@ export default function MapMakerPage() {
                 <Label htmlFor="draft-type">NODE TYPE</Label>
                 <div className="mt-2 grid grid-cols-2 gap-2">
                   <button
-                    className={`min-h-12 border-4 p-2 text-[10px] ${draft.type === "NODE" ? "border-emerald-300 bg-emerald-950" : "border-slate-600 bg-slate-950"}`}
+                    className={`min-h-10 border-3 p-1.5 text-[9px] ${draft.type === "NODE" ? "border-emerald-300 bg-emerald-950" : "border-slate-600 bg-slate-950"}`}
                     onClick={() =>
                       setDraft((current) => ({ ...current, type: "NODE" }))
                     }
@@ -807,7 +873,7 @@ export default function MapMakerPage() {
                     NODE
                   </button>
                   <button
-                    className={`min-h-12 border-4 p-2 text-[10px] ${draft.type === "JUNCTION" ? "border-fuchsia-300 bg-fuchsia-950" : "border-slate-600 bg-slate-950"}`}
+                    className={`min-h-10 border-3 p-1.5 text-[9px] ${draft.type === "JUNCTION" ? "border-fuchsia-300 bg-fuchsia-950" : "border-slate-600 bg-slate-950"}`}
                     onClick={() =>
                       setDraft((current) => ({ ...current, type: "JUNCTION" }))
                     }
@@ -822,7 +888,7 @@ export default function MapMakerPage() {
                   <div>
                     <Label htmlFor="draft-question">QUESTION</Label>
                     <textarea
-                      className="mt-2 min-h-24 w-full border-4 border-slate-600 bg-slate-950 p-3 text-xs"
+                      className="mt-2 min-h-20 w-full border-3 border-slate-600 bg-slate-950 p-2 text-[11px]"
                       id="draft-question"
                       onChange={(event) =>
                         setDraft((current) => ({
@@ -853,12 +919,13 @@ export default function MapMakerPage() {
               <div className="flex justify-end gap-3">
                 <Button
                   onClick={() => setDialogOpen(false)}
+                  size="compact"
                   type="button"
                   variant="outline"
                 >
                   CANCEL
                 </Button>
-                <Button onClick={saveDraft} type="button">
+                <Button onClick={saveDraft} size="compact" type="button">
                   {editingNodeId ? "SAVE" : "CREATE"}
                 </Button>
               </div>

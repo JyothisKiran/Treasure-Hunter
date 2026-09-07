@@ -26,6 +26,7 @@ export const buttonVariants = cva("", {
       sm: "",
       lg: "",
       icon: "",
+      compact: "",
     },
   },
   defaultVariants: {
@@ -47,6 +48,8 @@ interface ButtonDecorationsProps {
 }
 
 function ButtonDecorations({ size, variant }: ButtonDecorationsProps) {
+  const isCompact = size === "compact";
+
   return (
     <span
       aria-hidden="true"
@@ -56,25 +59,25 @@ function ButtonDecorations({ size, variant }: ButtonDecorationsProps) {
       {variant !== "ghost" && variant !== "link" && size !== "icon" && (
         <>
           {/* Pixelated border */}
-          <span className="absolute -top-1.5 left-1.5 h-1.5 w-1/2 bg-foreground dark:bg-ring" />
-          <span className="absolute -top-1.5 right-1.5 h-1.5 w-1/2 bg-foreground dark:bg-ring" />
-          <span className="absolute -bottom-1.5 left-1.5 h-1.5 w-1/2 bg-foreground dark:bg-ring" />
-          <span className="absolute -bottom-1.5 right-1.5 h-1.5 w-1/2 bg-foreground dark:bg-ring" />
-          <span className="absolute top-0 left-0 size-1.5 bg-foreground dark:bg-ring" />
-          <span className="absolute top-0 right-0 size-1.5 bg-foreground dark:bg-ring" />
-          <span className="absolute bottom-0 left-0 size-1.5 bg-foreground dark:bg-ring" />
-          <span className="absolute right-0 bottom-0 size-1.5 bg-foreground dark:bg-ring" />
-          <span className="absolute top-1.5 -left-1.5 h-[calc(100%-12px)] w-1.5 bg-foreground dark:bg-ring" />
-          <span className="absolute top-1.5 -right-1.5 h-[calc(100%-12px)] w-1.5 bg-foreground dark:bg-ring" />
+          <span className={cn("absolute bg-foreground dark:bg-ring", isCompact ? "-top-1 left-1 h-1 w-1/2" : "-top-1.5 left-1.5 h-1.5 w-1/2")} />
+          <span className={cn("absolute bg-foreground dark:bg-ring", isCompact ? "-top-1 right-1 h-1 w-1/2" : "-top-1.5 right-1.5 h-1.5 w-1/2")} />
+          <span className={cn("absolute bg-foreground dark:bg-ring", isCompact ? "-bottom-1 left-1 h-1 w-1/2" : "-bottom-1.5 left-1.5 h-1.5 w-1/2")} />
+          <span className={cn("absolute bg-foreground dark:bg-ring", isCompact ? "-bottom-1 right-1 h-1 w-1/2" : "-bottom-1.5 right-1.5 h-1.5 w-1/2")} />
+          <span className={cn("absolute bg-foreground dark:bg-ring", isCompact ? "top-0 left-0 size-1" : "top-0 left-0 size-1.5")} />
+          <span className={cn("absolute bg-foreground dark:bg-ring", isCompact ? "top-0 right-0 size-1" : "top-0 right-0 size-1.5")} />
+          <span className={cn("absolute bg-foreground dark:bg-ring", isCompact ? "bottom-0 left-0 size-1" : "bottom-0 left-0 size-1.5")} />
+          <span className={cn("absolute bg-foreground dark:bg-ring", isCompact ? "right-0 bottom-0 size-1" : "right-0 bottom-0 size-1.5")} />
+          <span className={cn("absolute bg-foreground dark:bg-ring", isCompact ? "top-1 -left-1 h-[calc(100%-8px)] w-1" : "top-1.5 -left-1.5 h-[calc(100%-12px)] w-1.5")} />
+          <span className={cn("absolute bg-foreground dark:bg-ring", isCompact ? "top-1 -right-1 h-[calc(100%-8px)] w-1" : "top-1.5 -right-1.5 h-[calc(100%-12px)] w-1.5")} />
           {variant !== "outline" && (
             <>
               {/* Top shadow */}
-              <span className="absolute top-0 left-0 h-1.5 w-full bg-foreground/20" />
-              <span className="absolute top-1.5 left-0 h-1.5 w-3 bg-foreground/20" />
+              <span className={cn("absolute top-0 left-0 w-full bg-foreground/20", isCompact ? "h-1" : "h-1.5")} />
+              <span className={cn("absolute left-0 bg-foreground/20", isCompact ? "top-1 h-1 w-2" : "top-1.5 h-1.5 w-3")} />
 
               {/* Bottom shadow */}
-              <span className="absolute bottom-0 left-0 h-1.5 w-full bg-foreground/20" />
-              <span className="absolute right-0 bottom-1.5 h-1.5 w-3 bg-foreground/20" />
+              <span className={cn("absolute bottom-0 left-0 w-full bg-foreground/20", isCompact ? "h-1" : "h-1.5")} />
+              <span className={cn("absolute right-0 bg-foreground/20", isCompact ? "bottom-1 h-1 w-2" : "bottom-1.5 h-1.5 w-3")} />
             </>
           )}
         </>
@@ -110,11 +113,12 @@ function Button({
       {...props}
       className={cn(
         "relative inline-flex min-h-11 items-center justify-center gap-1.5 rounded-none border-none px-4 py-2 transition-transform active:translate-y-1",
+        size === "compact" && "min-h-9 gap-1 px-3 py-1 text-[10px]",
         size === "icon" && "mx-1 my-0",
         font !== "normal" && "retro",
         className
       )}
-      size={size}
+      size={size === "compact" ? "sm" : size}
       variant={variant}
     >
       {asChild ? <Slot>{children}</Slot> : children}

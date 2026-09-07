@@ -12,6 +12,10 @@ export const inputVariants = cva("", {
       normal: "",
       retro: "retro",
     },
+    size: {
+      default: "",
+      compact: "",
+    },
   },
   defaultVariants: {
     font: "retro",
@@ -19,32 +23,38 @@ export const inputVariants = cva("", {
 });
 
 export interface BitInputProps
-  extends React.InputHTMLAttributes<HTMLInputElement>,
+  extends Omit<React.InputHTMLAttributes<HTMLInputElement>, "size">,
     VariantProps<typeof inputVariants> {
   asChild?: boolean;
 }
 
 function Input({ ...props }: BitInputProps) {
-  const { className, font } = props;
+  const { className, font, size = "default", ...inputProps } = props;
+  const isCompact = size === "compact";
 
   return (
     <div
       className={cn(
-        "relative border-y-6 border-foreground dark:border-ring !p-0 flex items-center",
+        "relative flex items-center border-foreground dark:border-ring !p-0",
+        isCompact ? "border-y-4" : "border-y-6",
         className
       )}
     >
       <ShadcnInput
-        {...props}
+        {...inputProps}
         className={cn(
-          "min-h-11 rounded-none ring-0 !w-full",
+          "rounded-none ring-0 !w-full",
+          isCompact ? "min-h-9" : "min-h-11",
           font !== "normal" && "retro",
           className
         )}
       />
 
       <div
-        className="absolute inset-0 border-x-6 -mx-1.5 border-foreground dark:border-ring pointer-events-none"
+        className={cn(
+          "pointer-events-none absolute inset-0 border-foreground dark:border-ring",
+          isCompact ? "-mx-1 border-x-4" : "-mx-1.5 border-x-6",
+        )}
         aria-hidden="true"
       />
     </div>
