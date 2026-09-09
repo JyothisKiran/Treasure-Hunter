@@ -1,5 +1,6 @@
 import {
   useEffect,
+  type MouseEvent as ReactMouseEvent,
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
@@ -26,12 +27,15 @@ const NODE_WIDTH = 220;
 const NODE_HEIGHT = 132;
 const NODE_HALF_WIDTH = NODE_WIDTH / 2;
 const NODE_HALF_HEIGHT = NODE_HEIGHT / 2;
+const ALIGNMENT_EPSILON = 4;
 const DEFAULT_MAP: TreasureMap = {
   id: "treasure-map-1",
   name: "Untitled Expedition",
   nodes: [],
 };
 type DraftNode = { type: MapNodeType; question: string; answer: string };
+type EdgeSelection = { sourceId: string; targetId: string };
+type ContextMenuState = { nodeId: string; x: number; y: number };
 const EMPTY_DRAFT: DraftNode = { type: "NODE", question: "", answer: "" };
 
 interface SaveFilePickerOptions {
@@ -192,13 +196,26 @@ function canAddChild(node: MapNode): boolean {
 
 function getNodeConnectionPath(source: MapNode, target: MapNode) {
   const deltaX = target.x - source.x;
-  const sourceX = source.x + (deltaX >= 0 ? NODE_HALF_WIDTH : -NODE_HALF_WIDTH);
+  const deltaY = target.y - source.y;
+
+  if (Math.abs(deltaY) <= ALIGNMENT_EPSILON) {
+    const direction = deltaX >= 0 ? 1 : -1;
+    return `M ${source.x + direction * NODE_HALF_WIDTH} ${source.y} L ${target.x - direction * NODE_HALF_WIDTH} ${target.y}`;
+  }
+
+  if (Math.abs(deltaX) <= ALIGNMENT_EPSILON) {
+    const direction = deltaY >= 0 ? 1 : -1;
+    return `M ${source.x} ${source.y + direction * NODE_HALF_HEIGHT} L ${target.x} ${target.y - direction * NODE_HALF_HEIGHT}`;
+  }
+
+  const direction = deltaX >= 0 ? 1 : -1;
+  const sourceX = source.x + direction * NODE_HALF_WIDTH;
   const sourceY = source.y;
-  const targetX = target.x + (deltaX >= 0 ? -NODE_HALF_WIDTH : NODE_HALF_WIDTH);
+  const targetX = target.x - direction * NODE_HALF_WIDTH;
   const targetY = target.y;
   const bendX =
     source.x +
-    (deltaX >= 0 ? NODE_HALF_WIDTH + Math.max(60, Math.abs(deltaX) * 0.35) : -(NODE_HALF_WIDTH + Math.max(60, Math.abs(deltaX) * 0.35)));
+    direction * (NODE_HALF_WIDTH + Math.max(60, Math.abs(deltaX) * 0.35));
 
   return `M ${sourceX} ${sourceY} L ${bendX} ${sourceY} L ${bendX} ${targetY} L ${targetX} ${targetY}`;
 }
@@ -229,10 +246,10 @@ export default function MapMakerPage() {
   const [draft, setDraft] = useState<DraftNode>(EMPTY_DRAFT);
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
-  const [selectedEdge, setSelectedEdge] = useState<{
-    sourceId: string;
-    targetId: string;
-  } | null>(null);
+  const [selectedEdge, setSelectedEdge] = useState<EdgeSelection | null>(null);
+  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(
+    null,
+  );
   const fileInputRef = useRef<HTMLInputElement>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{
@@ -250,6 +267,13 @@ export default function MapMakerPage() {
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(map));
   }, [map]);
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setContextMenu(null);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
 
   const setZoomAt = (nextZoom: number, clientX?: number, clientY?: number) => {
     const boundedZoom = Math.min(2.5, Math.max(0.35, nextZoom));
@@ -273,6 +297,7 @@ export default function MapMakerPage() {
   const handleCanvasPointerDown = (
     event: ReactPointerEvent<HTMLDivElement>,
   ) => {
+    setContextMenu(null);
     if (event.target !== event.currentTarget) return;
     setSelectedNodeId(null);
     setSelectedEdge(null);
@@ -464,6 +489,7 @@ export default function MapMakerPage() {
     setParentNodeIdForNewChild((current) =>
       current === nodeId ? null : current,
     );
+    setContextMenu(null);
     toast("Node deleted");
   };
 
@@ -489,8 +515,16 @@ export default function MapMakerPage() {
   const connectNodes = (targetId: string) => {
     if (!connectionSourceId) return;
     const source = map.nodes.find((node) => node.id === connectionSourceId);
-    if (!source || source.children.includes(targetId)) {
+    const target = map.nodes.find((node) => node.id === targetId);
+    if (!source || !target || source.children.includes(targetId)) {
       toast("That connection already exists");
+      setConnectionSourceId(null);
+      return;
+    }
+    if (source.id === target.id) {
+      toast(
+        "A node cannot connect to itself"
+      );
       setConnectionSourceId(null);
       return;
     }
@@ -511,6 +545,34 @@ export default function MapMakerPage() {
     }));
     setConnectionSourceId(null);
     toast("Nodes connected");
+  };
+
+  const startConnection = (nodeId: string) => {
+    setConnectionSourceId(nodeId);
+    setSelectedNodeId(nodeId);
+    setSelectedEdge(null);
+    setContextMenu(null);
+    toast("Select an existing node to connect");
+  };
+
+  const openNodeContextMenu = (
+    event: ReactMouseEvent<HTMLElement>,
+    nodeId: string,
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+    const bounds = viewport.getBoundingClientRect();
+    const menuWidth = 152;
+    const menuHeight = 48;
+    setContextMenu({
+      nodeId,
+      x: Math.min(Math.max(8, event.clientX - bounds.left), bounds.width - menuWidth - 8),
+      y: Math.min(Math.max(8, event.clientY - bounds.top), bounds.height - menuHeight - 8),
+    });
+    setSelectedNodeId(nodeId);
+    setSelectedEdge(null);
   };
 
   const exportMap = async () => {
@@ -698,14 +760,19 @@ export default function MapMakerPage() {
                 <defs>
                   <marker
                     id="map-link-arrow"
-                    markerHeight="10"
-                    markerWidth="10"
+                    markerHeight="16"
+                    markerWidth="16"
                     orient="auto-start-reverse"
-                    refX="8.5"
-                    refY="3"
-                    viewBox="0 0 10 10"
+                    refX="13"
+                    refY="5"
+                    viewBox="0 0 14 10"
                   >
-                    <path d="M 0 0 L 9 3 L 0 6 z" fill="#fbbf24" />
+                    <path
+                      d="M 0 0 L 14 5 L 0 10 z"
+                      fill="#fbbf24"
+                      stroke="#0f172a"
+                      strokeWidth="1.25"
+                    />
                   </marker>
                 </defs>
                 {map.nodes.flatMap((node) =>
@@ -716,30 +783,42 @@ export default function MapMakerPage() {
                     const isSelected =
                       selectedEdge?.sourceId === node.id &&
                       selectedEdge.targetId === childId;
-                    return child ? (
-                      <path
-                        className={
-                          isSelected ? "stroke-red-300" : "stroke-amber-300"
-                        }
-                        d={getNodeConnectionPath(node, child)}
-                        fill="none"
-                        key={`${node.id}-${child.id}`}
-                        markerEnd="url(#map-link-arrow)"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          setSelectedEdge({
-                            sourceId: node.id,
-                            targetId: child.id,
-                          });
-                          setSelectedNodeId(null);
-                        }}
-                        onPointerDown={(event) => event.stopPropagation()}
-                        strokeDasharray={isSelected ? undefined : "8 8"}
-                        strokeLinecap="square"
-                        strokeLinejoin="miter"
-                        strokeWidth={isSelected ? "5" : "2"}
-                        style={{ pointerEvents: "stroke", cursor: "pointer" }}
-                      />
+                    const path = child
+                      ? getNodeConnectionPath(node, child)
+                      : null;
+                    return child && path ? (
+                      <g key={`${node.id}-${child.id}`}>
+                        <path
+                          d={path}
+                          fill="none"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setContextMenu(null);
+                            setSelectedEdge({
+                              sourceId: node.id,
+                              targetId: child.id,
+                            });
+                            setSelectedNodeId(null);
+                          }}
+                          onPointerDown={(event) => event.stopPropagation()}
+                          stroke="transparent"
+                          strokeWidth="20"
+                          style={{ pointerEvents: "stroke", cursor: "pointer" }}
+                        />
+                        <path
+                          className={
+                            isSelected ? "stroke-red-300" : "stroke-amber-300"
+                          }
+                          d={path}
+                          fill="none"
+                          markerEnd="url(#map-link-arrow)"
+                          pointerEvents="none"
+                          strokeDasharray={isSelected ? undefined : "8 8"}
+                          strokeLinecap="square"
+                          strokeLinejoin="miter"
+                          strokeWidth="2"
+                        />
+                      </g>
                     ) : null;
                   }),
                 )}
@@ -748,7 +827,7 @@ export default function MapMakerPage() {
                 const isSelected = node.id === selectedNodeId;
                 const isSource = node.id === connectionSourceId;
                 const isHovered = hoveredNodeId === node.id;
-                const showAddChild = isHovered && canAddChild(node);
+                const showConnectionActions = isHovered && canAddChild(node);
                 return (
                   <div
                     className="absolute -translate-x-1/2 -translate-y-1/2"
@@ -757,13 +836,7 @@ export default function MapMakerPage() {
                   >
                     <article
                       className={`relative w-55 border-4 ${node.type === "JUNCTION" ? "border-fuchsia-300 bg-fuchsia-950 text-fuchsia-100" : "border-emerald-300 bg-emerald-950 text-emerald-100"} ${isSelected ? "z-10 ring-4 ring-amber-300" : ""} ${isSource ? "ring-4 ring-cyan-300" : ""}`}
-                      onContextMenu={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        if (window.confirm("Delete this node and its connections?")) {
-                          deleteNode(node.id);
-                        }
-                      }}
+                      onContextMenu={(event) => openNodeContextMenu(event, node.id)}
                       onDoubleClick={(event) => {
                         event.stopPropagation();
                         openEditDialog(node);
@@ -840,7 +913,7 @@ export default function MapMakerPage() {
                             {node.type === "JUNCTION" ? 2 : 1} CHILDREN
                           </span>
                         </div>
-                        {showAddChild && (
+                        {showConnectionActions && (
                           <button
                             aria-label={`Add child to ${node.type} ${node.id}`}
                             className="absolute -right-3 -top-3 z-20 flex size-7 items-center justify-center border-2 border-amber-300 bg-slate-950 text-lg leading-none text-amber-200 shadow-[2px_2px_0_rgba(0,0,0,0.45)] hover:bg-amber-950"
@@ -855,12 +928,47 @@ export default function MapMakerPage() {
                             +
                           </button>
                         )}
+                        {showConnectionActions && (
+                          <button
+                            aria-label={`Connect ${node.type} ${node.id} to an existing node`}
+                            className="absolute -bottom-3 -right-3 z-20 border-2 border-cyan-300 bg-slate-950 px-1.5 py-1 text-[7px] leading-none text-cyan-100 shadow-[2px_2px_0_rgba(0,0,0,0.45)] hover:bg-cyan-950"
+                            onClick={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              startConnection(node.id);
+                            }}
+                            onPointerDown={(event) => event.stopPropagation()}
+                            title="Connect to existing node"
+                            type="button"
+                          >
+                            LINK
+                          </button>
+                        )}
                       </div>
                     </article>
                   </div>
                 );
               })}
             </div>
+            {contextMenu && (
+              <div
+                aria-label="Node actions"
+                className="absolute z-50 min-w-38 border-3 border-amber-300 bg-slate-950 p-1 shadow-[4px_4px_0_rgba(0,0,0,0.55)]"
+                onClick={(event) => event.stopPropagation()}
+                onPointerDown={(event) => event.stopPropagation()}
+                role="menu"
+                style={{ left: contextMenu.x, top: contextMenu.y }}
+              >
+                <button
+                  className="flex w-full items-center gap-2 border-2 border-transparent px-2 py-1.5 text-left text-[9px] text-red-200 hover:border-red-300 hover:bg-red-950"
+                  onClick={() => deleteNode(contextMenu.nodeId)}
+                  role="menuitem"
+                  type="button"
+                >
+                  <Trash2 className="size-3" /> DELETE
+                </button>
+              </div>
+            )}
             {!map.nodes.length && (
               <button
                 className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-center text-cyan-200"
@@ -927,7 +1035,7 @@ export default function MapMakerPage() {
                   onClick={deleteConnection}
                   size="compact"
                   type="button"
-                  variant="outline"
+                  variant="destructive"
                 >
                   <Trash2 className="size-3" /> REMOVE LINK
                 </Button>
