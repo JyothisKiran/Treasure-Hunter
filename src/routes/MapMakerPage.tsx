@@ -7,9 +7,7 @@ import {
 } from "react";
 import {
   Download,
-  GitBranch,
   Minus,
-  Pencil,
   Plus,
   RotateCcw,
   Trash2,
@@ -24,6 +22,10 @@ import { toast } from "@/components/ui/8bit/toast";
 import type { MapNode, MapNodeType, TreasureMap } from "@/types/map";
 
 const STORAGE_KEY = "treasure-hunter-map-maker";
+const NODE_WIDTH = 220;
+const NODE_HEIGHT = 132;
+const NODE_HALF_WIDTH = NODE_WIDTH / 2;
+const NODE_HALF_HEIGHT = NODE_HEIGHT / 2;
 const DEFAULT_MAP: TreasureMap = {
   id: "treasure-map-1",
   name: "Untitled Expedition",
@@ -183,6 +185,35 @@ function layoutLoops(nodes: MapNode[]): MapNode[] {
   }));
 }
 
+function canAddChild(node: MapNode): boolean {
+  const childLimit = node.type === "JUNCTION" ? 2 : 1;
+  return node.children.length < childLimit;
+}
+
+function getNodeConnectionPath(source: MapNode, target: MapNode) {
+  const deltaX = target.x - source.x;
+  const sourceX = source.x + (deltaX >= 0 ? NODE_HALF_WIDTH : -NODE_HALF_WIDTH);
+  const sourceY = source.y;
+  const targetX = target.x + (deltaX >= 0 ? -NODE_HALF_WIDTH : NODE_HALF_WIDTH);
+  const targetY = target.y;
+  const bendX =
+    source.x +
+    (deltaX >= 0 ? NODE_HALF_WIDTH + Math.max(60, Math.abs(deltaX) * 0.35) : -(NODE_HALF_WIDTH + Math.max(60, Math.abs(deltaX) * 0.35)));
+
+  return `M ${sourceX} ${sourceY} L ${bendX} ${sourceY} L ${bendX} ${targetY} L ${targetX} ${targetY}`;
+}
+
+function getNodePlacementNearParent(parent: MapNode, siblingCount: number) {
+  const offsetX = 260;
+  const offsetY =
+    (siblingCount % 2 === 0 ? 1 : -1) * (90 + (siblingCount % 3) * 45);
+
+  return {
+    x: parent.x + offsetX,
+    y: parent.y + offsetY,
+  };
+}
+
 export default function MapMakerPage() {
   const [map, setMap] = useState<TreasureMap>(loadMap);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
@@ -191,6 +222,10 @@ export default function MapMakerPage() {
   );
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
+  const [parentNodeIdForNewChild, setParentNodeIdForNewChild] = useState<
+    string | null
+  >(null);
+  const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
   const [draft, setDraft] = useState<DraftNode>(EMPTY_DRAFT);
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -324,23 +359,6 @@ export default function MapMakerPage() {
     }
   };
 
-  const startNodeDrag = (
-    event: ReactPointerEvent<HTMLButtonElement>,
-    node: MapNode,
-  ) => {
-    event.stopPropagation();
-    event.currentTarget.setPointerCapture(event.pointerId);
-    dragRef.current = {
-      kind: "node",
-      id: node.id,
-      startX: event.clientX,
-      startY: event.clientY,
-      originX: node.x,
-      originY: node.y,
-      moved: false,
-    };
-  };
-
   const updateNode = (nodeId: string, update: Partial<MapNode>) => {
     setMap((current) => ({
       ...current,
@@ -350,9 +368,10 @@ export default function MapMakerPage() {
     }));
   };
 
-  const openAddDialog = () => {
+  const openAddDialog = (parentNodeId?: string | null) => {
     setEditingNodeId(null);
     setDraft(EMPTY_DRAFT);
+    setParentNodeIdForNewChild(parentNodeId ?? null);
     setDialogOpen(true);
   };
   const openEditDialog = (node: MapNode) => {
@@ -382,18 +401,43 @@ export default function MapMakerPage() {
       setSelectedNodeId(editingNodeId);
       toast("Node updated");
     } else {
-      const position = nextPosition(map.nodes.length);
+      const parentNode = parentNodeIdForNewChild
+        ? map.nodes.find((node) => node.id === parentNodeIdForNewChild) ?? null
+        : null;
+      if (parentNode && !canAddChild(parentNode)) {
+        toast("This node cannot accept another child");
+        setParentNodeIdForNewChild(null);
+        setDialogOpen(false);
+        return;
+      }
+      const basePosition = parentNode
+        ? getNodePlacementNearParent(parentNode, parentNode.children.length)
+        : nextPosition(map.nodes.length);
       const node: MapNode = {
         id: `${draft.type.toLowerCase()}-${map.nodes.length + 1}`,
         type: draft.type,
-        ...position,
+        ...basePosition,
         children: [],
         question: draft.type === "NODE" ? draft.question.trim() : undefined,
         answer: draft.type === "NODE" ? draft.answer.trim() : undefined,
       };
-      setMap((current) => ({ ...current, nodes: [...current.nodes, node] }));
+      setMap((current) => {
+        const nextNodes = [...current.nodes, node];
+        const nodesWithParent = parentNode
+          ? nextNodes.map((existingNode) =>
+              existingNode.id === parentNode.id
+                ? { ...existingNode, children: [...existingNode.children, node.id] }
+                : existingNode,
+            )
+          : nextNodes;
+        return {
+          ...current,
+          nodes: layoutLoops(nodesWithParent),
+        };
+      });
       setSelectedNodeId(node.id);
-      toast(`${draft.type} node added`);
+      setParentNodeIdForNewChild(null);
+      toast(parentNode ? `${draft.type} node added as child` : `${draft.type} node added`);
     }
     setDialogOpen(false);
   };
@@ -408,8 +452,18 @@ export default function MapMakerPage() {
           children: node.children.filter((child) => child !== nodeId),
         })),
     }));
-    setSelectedNodeId(null);
-    setConnectionSourceId(null);
+    setSelectedNodeId((current) => (current === nodeId ? null : current));
+    setSelectedEdge((current) =>
+      current && (current.sourceId === nodeId || current.targetId === nodeId)
+        ? null
+        : current,
+    );
+    setConnectionSourceId((current) =>
+      current === nodeId ? null : current,
+    );
+    setParentNodeIdForNewChild((current) =>
+      current === nodeId ? null : current,
+    );
     toast("Node deleted");
   };
 
@@ -440,7 +494,7 @@ export default function MapMakerPage() {
       setConnectionSourceId(null);
       return;
     }
-    if (source.children.length >= (source.type === "JUNCTION" ? 2 : 1)) {
+    if (!canAddChild(source)) {
       toast(`${source.type} nodes have reached their child limit`);
       setConnectionSourceId(null);
       return;
@@ -533,13 +587,11 @@ export default function MapMakerPage() {
       setPan({ x: 0, y: 0 });
       return;
     }
-    const nodeHalfWidth = 110;
-    const nodeHalfHeight = 66;
     const padding = 80;
-    const minX = Math.min(...map.nodes.map((node) => node.x - nodeHalfWidth));
-    const maxX = Math.max(...map.nodes.map((node) => node.x + nodeHalfWidth));
-    const minY = Math.min(...map.nodes.map((node) => node.y - nodeHalfHeight));
-    const maxY = Math.max(...map.nodes.map((node) => node.y + nodeHalfHeight));
+    const minX = Math.min(...map.nodes.map((node) => node.x - NODE_HALF_WIDTH));
+    const maxX = Math.max(...map.nodes.map((node) => node.x + NODE_HALF_WIDTH));
+    const minY = Math.min(...map.nodes.map((node) => node.y - NODE_HALF_HEIGHT));
+    const maxY = Math.max(...map.nodes.map((node) => node.y + NODE_HALF_HEIGHT));
     const graphWidth = Math.max(maxX - minX, 1);
     const graphHeight = Math.max(maxY - minY, 1);
     const viewportWidth = viewport.clientWidth;
@@ -643,6 +695,19 @@ export default function MapMakerPage() {
                 className="absolute left-0 top-0 size-px overflow-visible"
                 aria-label="Map connections"
               >
+                <defs>
+                  <marker
+                    id="map-link-arrow"
+                    markerHeight="10"
+                    markerWidth="10"
+                    orient="auto-start-reverse"
+                    refX="8.5"
+                    refY="3"
+                    viewBox="0 0 10 10"
+                  >
+                    <path d="M 0 0 L 9 3 L 0 6 z" fill="#fbbf24" />
+                  </marker>
+                </defs>
                 {map.nodes.flatMap((node) =>
                   node.children.map((childId) => {
                     const child = map.nodes.find(
@@ -652,11 +717,14 @@ export default function MapMakerPage() {
                       selectedEdge?.sourceId === node.id &&
                       selectedEdge.targetId === childId;
                     return child ? (
-                      <line
+                      <path
                         className={
                           isSelected ? "stroke-red-300" : "stroke-amber-300"
                         }
+                        d={getNodeConnectionPath(node, child)}
+                        fill="none"
                         key={`${node.id}-${child.id}`}
+                        markerEnd="url(#map-link-arrow)"
                         onClick={(event) => {
                           event.stopPropagation();
                           setSelectedEdge({
@@ -666,12 +734,10 @@ export default function MapMakerPage() {
                           setSelectedNodeId(null);
                         }}
                         onPointerDown={(event) => event.stopPropagation()}
-                        strokeDasharray="8 8"
+                        strokeDasharray={isSelected ? undefined : "8 8"}
+                        strokeLinecap="square"
+                        strokeLinejoin="miter"
                         strokeWidth={isSelected ? "5" : "2"}
-                        x1={node.x}
-                        x2={child.x}
-                        y1={node.y}
-                        y2={child.y}
                         style={{ pointerEvents: "stroke", cursor: "pointer" }}
                       />
                     ) : null;
@@ -681,6 +747,8 @@ export default function MapMakerPage() {
               {map.nodes.map((node) => {
                 const isSelected = node.id === selectedNodeId;
                 const isSource = node.id === connectionSourceId;
+                const isHovered = hoveredNodeId === node.id;
+                const showAddChild = isHovered && canAddChild(node);
                 return (
                   <div
                     className="absolute -translate-x-1/2 -translate-y-1/2"
@@ -689,71 +757,104 @@ export default function MapMakerPage() {
                   >
                     <article
                       className={`relative w-55 border-4 ${node.type === "JUNCTION" ? "border-fuchsia-300 bg-fuchsia-950 text-fuchsia-100" : "border-emerald-300 bg-emerald-950 text-emerald-100"} ${isSelected ? "z-10 ring-4 ring-amber-300" : ""} ${isSource ? "ring-4 ring-cyan-300" : ""}`}
+                      onContextMenu={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        if (window.confirm("Delete this node and its connections?")) {
+                          deleteNode(node.id);
+                        }
+                      }}
+                      onDoubleClick={(event) => {
+                        event.stopPropagation();
+                        openEditDialog(node);
+                      }}
+                      onMouseEnter={() => setHoveredNodeId(node.id)}
+                      onMouseLeave={() => setHoveredNodeId((current) => (current === node.id ? null : current))}
+                      onPointerDown={(event) => {
+                        if (event.button !== 0) return;
+                        event.preventDefault();
+                        event.stopPropagation();
+                        setSelectedEdge(null);
+                        if (connectionSourceId) {
+                          connectNodes(node.id);
+                          return;
+                        }
+                        setSelectedNodeId(node.id);
+                        event.currentTarget.setPointerCapture(event.pointerId);
+                        dragRef.current = {
+                          kind: "node",
+                          id: node.id,
+                          startX: event.clientX,
+                          startY: event.clientY,
+                          originX: node.x,
+                          originY: node.y,
+                          moved: false,
+                        };
+                      }}
+                      onPointerMove={(event) => {
+                        event.stopPropagation();
+                        const drag = dragRef.current;
+                        if (!drag || drag.kind !== "node" || drag.id !== node.id) return;
+                        const deltaX = event.clientX - drag.startX;
+                        const deltaY = event.clientY - drag.startY;
+                        if (Math.abs(deltaX) > 4 || Math.abs(deltaY) > 4) drag.moved = true;
+                        if (drag.moved) {
+                          updateNode(drag.id, {
+                            x: drag.originX + deltaX / zoom,
+                            y: drag.originY + deltaY / zoom,
+                          });
+                        }
+                      }}
+                      onPointerUp={(event) => {
+                        event.stopPropagation();
+                        const drag = dragRef.current;
+                        if (drag && drag.kind === "node" && drag.id === node.id) {
+                          if (drag.moved) {
+                            setSelectedNodeId(node.id);
+                          }
+                          dragRef.current = null;
+                          if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+                            event.currentTarget.releasePointerCapture(event.pointerId);
+                          }
+                        }
+                      }}
+                      onPointerCancel={(event) => {
+                        event.stopPropagation();
+                        if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+                          event.currentTarget.releasePointerCapture(event.pointerId);
+                        }
+                        dragRef.current = null;
+                      }}
                     >
-                      <div className="p-3 pr-8">
-                      <button
-                        aria-label={`Select ${node.type} ${node.id}`}
-                        className="block w-full text-left"
-                        onClick={() => {
-                          setSelectedEdge(null);
-                          if (connectionSourceId) connectNodes(node.id);
-                          else setSelectedNodeId(node.id);
-                        }}
-                        type="button"
-                      >
-                        <span className="block text-[8px] text-amber-300">
-                          {node.type}
-                          {cycleNodes.has(node.id) && " / LOOP"}
-                        </span>
-                        <span className="mt-1 block truncate text-[10px]">
-                          {node.question || node.id}
-                        </span>
-                        <span className="mt-1 block text-[8px] text-slate-300">
-                          {node.children.length}/
-                          {node.type === "JUNCTION" ? 2 : 1} CHILDREN
-                        </span>
-                      </button>
-                      <button
-                        aria-label={`Drag ${node.type} ${node.id}`}
-                        className="absolute right-0 top-0 bottom-0 w-6 cursor-grab border border-slate-400 bg-slate-500/80 active:cursor-grabbing"
-                        data-drag-handle
-                        onPointerDown={(event) => startNodeDrag(event, node)}
-                        onPointerMove={handleCanvasPointerMove}
-                        onPointerUp={finishCanvasPointer}
-                        onPointerCancel={finishCanvasPointer}
-                        type="button"
-                      />
-                      {isSelected && (
-                        <div className="mt-2 grid grid-cols-3 gap-1 border-t border-white/20 pt-2">
-                          <button
-                            data-node-action
-                            aria-label="Edit node"
-                            className="flex min-h-7 items-center justify-center bg-cyan-300 px-1 text-slate-950"
-                            onClick={() => openEditDialog(node)}
-                            type="button"
-                          >
-                            <Pencil className="size-3" />
-                          </button>
-                          <button
-                            data-node-action
-                            aria-label="Connect node"
-                            className="flex min-h-7 items-center justify-center bg-amber-300 px-1 text-slate-950"
-                            onClick={() => setConnectionSourceId(node.id)}
-                            type="button"
-                          >
-                            <GitBranch className="size-3" />
-                          </button>
-                          <button
-                            data-node-action
-                            aria-label="Delete node"
-                            className="flex min-h-7 items-center justify-center bg-red-300 px-1 text-slate-950"
-                            onClick={() => deleteNode(node.id)}
-                            type="button"
-                          >
-                            <Trash2 className="size-3" />
-                          </button>
+                      <div className="p-3">
+                        <div className="block w-full text-left">
+                          <span className="block text-[8px] text-amber-300">
+                            {node.type}
+                            {cycleNodes.has(node.id) && " / LOOP"}
+                          </span>
+                          <span className="mt-1 block truncate text-[10px]">
+                            {node.question || node.id}
+                          </span>
+                          <span className="mt-1 block text-[8px] text-slate-300">
+                            {node.children.length}/
+                            {node.type === "JUNCTION" ? 2 : 1} CHILDREN
+                          </span>
                         </div>
-                      )}
+                        {showAddChild && (
+                          <button
+                            aria-label={`Add child to ${node.type} ${node.id}`}
+                            className="absolute -right-3 -top-3 z-20 flex size-7 items-center justify-center border-2 border-amber-300 bg-slate-950 text-lg leading-none text-amber-200 shadow-[2px_2px_0_rgba(0,0,0,0.45)] hover:bg-amber-950"
+                            onClick={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              openAddDialog(node.id);
+                            }}
+                            onPointerDown={(event) => event.stopPropagation()}
+                            type="button"
+                          >
+                            +
+                          </button>
+                        )}
                       </div>
                     </article>
                   </div>
@@ -763,7 +864,7 @@ export default function MapMakerPage() {
             {!map.nodes.length && (
               <button
                 className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-center text-cyan-200"
-                onClick={openAddDialog}
+                onClick={() => openAddDialog(null)}
                 type="button"
               >
                 <span className="flex size-12 items-center justify-center border-4 border-cyan-300 text-3xl">
@@ -776,7 +877,7 @@ export default function MapMakerPage() {
               <button
                 aria-label="Add node"
                 className="absolute left-3 top-3 flex size-9 items-center justify-center border-2 border-emerald-300 bg-slate-950/90 text-emerald-200"
-                onClick={openAddDialog}
+                onClick={() => openAddDialog(null)}
                 title="Add node"
                 type="button"
               >
@@ -839,6 +940,7 @@ export default function MapMakerPage() {
         </section>
       </div>
 
+      {/* Node Editing Dialog */}
       {dialogOpen && (
         <div
           aria-modal="true"
@@ -853,7 +955,10 @@ export default function MapMakerPage() {
               <button
                 aria-label="Close dialog"
                 className="text-amber-300"
-                onClick={() => setDialogOpen(false)}
+                onClick={() => {
+                  setParentNodeIdForNewChild(null);
+                  setDialogOpen(false);
+                }}
                 type="button"
               >
                 <X />
@@ -918,7 +1023,10 @@ export default function MapMakerPage() {
               )}
               <div className="flex justify-end gap-3">
                 <Button
-                  onClick={() => setDialogOpen(false)}
+                  onClick={() => {
+                    setParentNodeIdForNewChild(null);
+                    setDialogOpen(false);
+                  }}
                   size="compact"
                   type="button"
                   variant="outline"
