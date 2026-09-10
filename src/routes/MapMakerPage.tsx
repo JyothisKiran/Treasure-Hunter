@@ -42,6 +42,9 @@ const NODE_HALF_WIDTH = NODE_WIDTH / 2;
 const NODE_HALF_HEIGHT = NODE_HEIGHT / 2;
 const ALIGNMENT_EPSILON = 4;
 const ROUTING_LANE_GAP = 28;
+const MAP_GRID_SIZE = 16;
+const PIXEL_ROAD_TILE_SIZE = MAP_GRID_SIZE;
+const PIXEL_ROAD_HIT_WIDTH = 20;
 const DEFAULT_MAP: TreasureMap = {
   id: "treasure-map-1",
   name: "Untitled Expedition",
@@ -55,6 +58,9 @@ type EdgeRouting = {
   targetPortOffset: number;
   laneOffset: number;
 };
+type MapPoint = { x: number; y: number };
+type RoadDirection = "up" | "right" | "down" | "left";
+type PixelRoadTile = MapPoint & { directions: Set<RoadDirection> };
 const EMPTY_DRAFT: DraftNode = { type: "NODE", question: "", answer: "" };
 
 // interface SaveFilePickerOptions {
@@ -121,8 +127,31 @@ function loadMap(): TreasureMap {
   }
 }
 
+function snapToGrid(value: number) {
+  return Math.round(value / MAP_GRID_SIZE) * MAP_GRID_SIZE;
+}
+
+function snapPointToGrid(point: MapPoint): MapPoint {
+  return { x: snapToGrid(point.x), y: snapToGrid(point.y) };
+}
+
+function pointToGridCell(point: MapPoint) {
+  return { x: Math.round(point.x / MAP_GRID_SIZE), y: Math.round(point.y / MAP_GRID_SIZE) };
+}
+
+function gridCellToPoint(cell: MapPoint): MapPoint {
+  return { x: cell.x * MAP_GRID_SIZE, y: cell.y * MAP_GRID_SIZE };
+}
+
+function isGridAligned(point: MapPoint) {
+  return point.x % MAP_GRID_SIZE === 0 && point.y % MAP_GRID_SIZE === 0;
+}
+
 function nextPosition(index: number) {
-  return { x: 180 + (index % 4) * 320, y: 160 + Math.floor(index / 4) * 240 };
+  return snapPointToGrid({
+    x: 180 + (index % 4) * 320,
+    y: 160 + Math.floor(index / 4) * 240,
+  });
 }
 
 function findCycleNodes(nodes: MapNode[]): Set<string> {
@@ -196,15 +225,15 @@ function layoutLoops(nodes: MapNode[]): MapNode[] {
     );
     group.forEach((id, index) => {
       const angle = (index / group.length) * Math.PI * 2 - Math.PI / 2;
-      positions.set(id, {
+      positions.set(id, snapPointToGrid({
         x: centerX + Math.cos(angle) * radius,
         y: centerY + Math.sin(angle) * radius,
-      });
+      }));
     });
   });
   return nodes.map((node) => ({
     ...node,
-    ...(positions.get(node.id) ?? { x: node.x, y: node.y }),
+    ...(positions.get(node.id) ?? snapPointToGrid(node)),
   }));
 }
 
@@ -222,49 +251,115 @@ function getLaneOffset(index: number, count: number) {
   return (index - (count - 1) / 2) * ROUTING_LANE_GAP;
 }
 
+function getRouteOrientation(source: MapNode, target: MapNode) {
+  const deltaX = target.x - source.x;
+  const deltaY = target.y - source.y;
+  const isVerticallyAligned = Math.abs(deltaX) <= ALIGNMENT_EPSILON;
+  const isHorizontallyAligned = Math.abs(deltaY) <= ALIGNMENT_EPSILON;
+  return isVerticallyAligned ||
+    (!isHorizontallyAligned && Math.abs(deltaY) >= Math.abs(deltaX))
+    ? "vertical"
+    : "horizontal";
+}
+
+function getEndpointSide(
+  source: MapNode,
+  target: MapNode,
+  endpoint: "source" | "target",
+): RoadDirection {
+  const orientation = getRouteOrientation(source, target);
+  if (orientation === "vertical") {
+    const sourceSide = target.y >= source.y ? "down" : "up";
+    return endpoint === "source" ? sourceSide : oppositeDirection(sourceSide);
+  }
+  const sourceSide = target.x >= source.x ? "right" : "left";
+  return endpoint === "source" ? sourceSide : oppositeDirection(sourceSide);
+}
+
+type ConnectedEdge = { source: MapNode; target: MapNode; endpoint: "source" | "target" };
+
+function getSideConnections(nodes: MapNode[], node: MapNode, side: RoadDirection) {
+  const connections: ConnectedEdge[] = [];
+  nodes.forEach((source) => {
+    source.children.forEach((childId) => {
+      const target = nodes.find((candidate) => candidate.id === childId);
+      if (!target) return;
+      if (source.id === node.id && getEndpointSide(source, target, "source") === side)
+        connections.push({ source, target, endpoint: "source" });
+      if (target.id === node.id && getEndpointSide(source, target, "target") === side)
+        connections.push({ source, target, endpoint: "target" });
+    });
+  });
+  return connections.sort((first, second) => {
+    const firstKey = `${first.source.id}:${first.target.id}:${first.endpoint}`;
+    const secondKey = `${second.source.id}:${second.target.id}:${second.endpoint}`;
+    return firstKey.localeCompare(secondKey);
+  });
+}
+
 function getEdgeRouting(
   nodes: MapNode[],
   source: MapNode,
   target: MapNode,
 ): EdgeRouting {
-  const outgoingIds = source.children.filter((childId) =>
-    nodes.some((node) => node.id === childId),
+  const sourceConnections = getSideConnections(
+    nodes,
+    source,
+    getEndpointSide(source, target, "source"),
   );
-  const incomingIds = nodes
-    .filter((node) => node.children.includes(target.id))
-    .map((node) => node.id);
-  const sourceIndex = outgoingIds.indexOf(target.id);
-  const targetIndex = incomingIds.indexOf(source.id);
+  const targetConnections = getSideConnections(
+    nodes,
+    target,
+    getEndpointSide(source, target, "target"),
+  );
+  const isCurrentSource = (edge: ConnectedEdge) =>
+    edge.source.id === source.id &&
+    edge.target.id === target.id &&
+    edge.endpoint === "source";
+  const isCurrentTarget = (edge: ConnectedEdge) =>
+    edge.source.id === source.id &&
+    edge.target.id === target.id &&
+    edge.endpoint === "target";
+  const sourceIndex = sourceConnections.findIndex(isCurrentSource);
+  const targetIndex = targetConnections.findIndex(isCurrentTarget);
   const sourcePortOffset = getPortOffset(
     sourceIndex,
-    outgoingIds.length,
+    sourceConnections.length,
     Math.min(NODE_HALF_WIDTH - 18, NODE_HALF_HEIGHT - 18),
   );
   const targetPortOffset = getPortOffset(
     targetIndex,
-    incomingIds.length,
+    targetConnections.length,
     Math.min(NODE_HALF_WIDTH - 18, NODE_HALF_HEIGHT - 18),
   );
   const laneOffset =
-    outgoingIds.length > 1
-      ? getLaneOffset(sourceIndex, outgoingIds.length)
-      : getLaneOffset(targetIndex, incomingIds.length);
+    sourceConnections.length > 1
+      ? getLaneOffset(sourceIndex, sourceConnections.length)
+      : getLaneOffset(targetIndex, targetConnections.length);
 
   return { sourcePortOffset, targetPortOffset, laneOffset };
 }
 
-function getNodeConnectionPath(
+function normalizeRoutePoints(points: MapPoint[]) {
+  return points.map(snapPointToGrid).filter((point, index, all) => {
+    const previous = all[index - 1];
+    return (
+      isGridAligned(point) &&
+      (!previous || previous.x !== point.x || previous.y !== point.y)
+    );
+  });
+}
+
+function getNodeConnectionPoints(
   source: MapNode,
   target: MapNode,
   routing: EdgeRouting,
-) {
+): MapPoint[] {
   const deltaX = target.x - source.x;
   const deltaY = target.y - source.y;
   const isVerticallyAligned = Math.abs(deltaX) <= ALIGNMENT_EPSILON;
   const isHorizontallyAligned = Math.abs(deltaY) <= ALIGNMENT_EPSILON;
-  const isVerticalRoute =
-    isVerticallyAligned ||
-    (!isHorizontallyAligned && Math.abs(deltaY) >= Math.abs(deltaX));
+  const isVerticalRoute = getRouteOrientation(source, target) === "vertical";
 
   if (isVerticalRoute) {
     const direction = deltaY >= 0 ? 1 : -1;
@@ -276,13 +371,21 @@ function getNodeConnectionPath(
       isVerticallyAligned &&
       Math.abs(sourceX - targetX) <= ALIGNMENT_EPSILON
     )
-      return `M ${sourceX} ${sourceY} L ${targetX} ${targetY}`;
+      return normalizeRoutePoints([
+        { x: sourceX, y: sourceY },
+        { x: targetX, y: targetY },
+      ]);
     const midpoint = (sourceY + targetY) / 2;
     const maxLaneOffset = Math.max(0, Math.abs(targetY - sourceY) / 2 - 12);
     const bendY =
       midpoint +
       Math.max(-maxLaneOffset, Math.min(maxLaneOffset, routing.laneOffset));
-    return `M ${sourceX} ${sourceY} L ${sourceX} ${bendY} L ${targetX} ${bendY} L ${targetX} ${targetY}`;
+    return normalizeRoutePoints([
+      { x: sourceX, y: sourceY },
+      { x: sourceX, y: bendY },
+      { x: targetX, y: bendY },
+      { x: targetX, y: targetY },
+    ]);
   }
 
   const direction = deltaX >= 0 ? 1 : -1;
@@ -294,14 +397,136 @@ function getNodeConnectionPath(
     isHorizontallyAligned &&
     Math.abs(sourceY - targetY) <= ALIGNMENT_EPSILON
   )
-    return `M ${sourceX} ${sourceY} L ${targetX} ${targetY}`;
+    return normalizeRoutePoints([
+      { x: sourceX, y: sourceY },
+      { x: targetX, y: targetY },
+    ]);
   const midpoint = (sourceX + targetX) / 2;
   const maxLaneOffset = Math.max(0, Math.abs(targetX - sourceX) / 2 - 12);
   const bendX =
     midpoint +
     Math.max(-maxLaneOffset, Math.min(maxLaneOffset, routing.laneOffset));
 
-  return `M ${sourceX} ${sourceY} L ${bendX} ${sourceY} L ${bendX} ${targetY} L ${targetX} ${targetY}`;
+  return normalizeRoutePoints([
+    { x: sourceX, y: sourceY },
+    { x: bendX, y: sourceY },
+    { x: bendX, y: targetY },
+    { x: targetX, y: targetY },
+  ]);
+}
+
+function getRoadPath(points: MapPoint[]) {
+  return points
+    .map((point, index) => {
+      const centerX = point.x + PIXEL_ROAD_TILE_SIZE / 2;
+      const centerY = point.y + PIXEL_ROAD_TILE_SIZE / 2;
+      return `${index ? "L" : "M"} ${centerX} ${centerY}`;
+    })
+    .join(" ");
+}
+
+function getDirection(from: MapPoint, to: MapPoint): RoadDirection {
+  if (to.x > from.x) return "right";
+  if (to.x < from.x) return "left";
+  if (to.y > from.y) return "down";
+  return "up";
+}
+
+function oppositeDirection(direction: RoadDirection): RoadDirection {
+  if (direction === "up") return "down";
+  if (direction === "down") return "up";
+  if (direction === "left") return "right";
+  return "left";
+}
+
+function getPixelRoadTiles(points: MapPoint[]): PixelRoadTile[] {
+  const tiles = new Map<string, PixelRoadTile>();
+  const addTile = (point: MapPoint, direction: RoadDirection) => {
+    const snapped = gridCellToPoint(pointToGridCell(point));
+    const key = `${snapped.x}:${snapped.y}`;
+    const tile = tiles.get(key) ?? { ...snapped, directions: new Set<RoadDirection>() };
+    tile.directions.add(direction);
+    tiles.set(key, tile);
+  };
+
+  points.slice(1).forEach((end, index) => {
+    const start = points[index];
+    const direction = getDirection(start, end);
+    const stepX = direction === "right" ? MAP_GRID_SIZE : direction === "left" ? -MAP_GRID_SIZE : 0;
+    const stepY = direction === "down" ? MAP_GRID_SIZE : direction === "up" ? -MAP_GRID_SIZE : 0;
+    let current = start;
+    while (current.x !== end.x || current.y !== end.y) {
+      const next = { x: current.x + stepX, y: current.y + stepY };
+      addTile(current, direction);
+      addTile(next, oppositeDirection(direction));
+      current = next;
+    }
+  });
+  return [...tiles.values()];
+}
+
+function getArrowPolygon(points: MapPoint[]) {
+  const end = points.at(-1);
+  const previous = points.at(-2);
+  if (!end || !previous) return "";
+  const centerX = end.x + PIXEL_ROAD_TILE_SIZE / 2;
+  const centerY = end.y + PIXEL_ROAD_TILE_SIZE / 2;
+  const direction = getDirection(previous, end);
+  if (direction === "right")
+    return `${centerX + 8},${centerY} ${centerX - 4},${centerY - 6} ${centerX - 4},${centerY + 6}`;
+  if (direction === "left")
+    return `${centerX - 8},${centerY} ${centerX + 4},${centerY - 6} ${centerX + 4},${centerY + 6}`;
+  if (direction === "down")
+    return `${centerX},${centerY + 8} ${centerX - 6},${centerY - 4} ${centerX + 6},${centerY - 4}`;
+  return `${centerX},${centerY - 8} ${centerX - 6},${centerY + 4} ${centerX + 6},${centerY + 4}`;
+}
+
+function PixelRoadEdge({
+  points,
+  isSelected,
+}: {
+  points: MapPoint[];
+  isSelected: boolean;
+}) {
+  const tiles = getPixelRoadTiles(points);
+  const roadPath = getRoadPath(points);
+  const roadColor = isSelected ? "#fca5a5" : "#d6a657";
+  const roadShade = isSelected ? "#7f1d1d" : "#6d4c2f";
+
+  return (
+    <g pointerEvents="none">
+      {tiles.map((tile) => {
+        const has = (direction: RoadDirection) => tile.directions.has(direction);
+        const x = tile.x;
+        const y = tile.y;
+        return (
+          <g key={`${x}:${y}`} shapeRendering="crispEdges">
+            <rect fill="#241a12" height={PIXEL_ROAD_TILE_SIZE} width={PIXEL_ROAD_TILE_SIZE} x={x} y={y} />
+            <rect fill={roadShade} height="8" width="8" x={x + 4} y={y + 4} />
+            {has("up") && <rect fill={roadShade} height="8" width="8" x={x + 4} y={y} />}
+            {has("right") && <rect fill={roadShade} height="8" width="8" x={x + 8} y={y + 4} />}
+            {has("down") && <rect fill={roadShade} height="8" width="8" x={x + 4} y={y + 8} />}
+            {has("left") && <rect fill={roadShade} height="8" width="8" x={x} y={y + 4} />}
+            <rect fill={roadColor} height="4" width="4" x={x + 6} y={y + 6} />
+            {has("up") && <rect fill={roadColor} height="6" width="4" x={x + 6} y={y} />}
+            {has("right") && <rect fill={roadColor} height="4" width="6" x={x + 10} y={y + 6} />}
+            {has("down") && <rect fill={roadColor} height="6" width="4" x={x + 6} y={y + 10} />}
+            {has("left") && <rect fill={roadColor} height="4" width="6" x={x} y={y + 6} />}
+          </g>
+        );
+      })}
+      <path
+        className="pixel-road-flow"
+        d={roadPath}
+        fill="none"
+        stroke="#fff1a8"
+        strokeDasharray="4 28"
+        strokeLinecap="square"
+        strokeWidth="3"
+      />
+      <polygon fill="#fbbf24" points={getArrowPolygon(points)} stroke="#0f172a" strokeWidth="2" />
+    </g>
+  );
 }
 
 function getNodePlacementNearParent(parent: MapNode, siblingCount: number) {
@@ -357,7 +582,7 @@ function mapFromBackendMap(
     }
   });
   const positions = new Map(
-    previousNodes.map((node) => [node.id, { x: node.x, y: node.y }]),
+    previousNodes.map((node) => [node.id, snapPointToGrid(node)]),
   );
 
   const nodes = backendMap.nodes.map((node, index): MapNode => {
@@ -630,7 +855,9 @@ export default function MapMakerPage() {
     setMap((current) => ({
       ...current,
       nodes: current.nodes.map((node) =>
-        node.id === nodeId ? { ...node, ...update } : node,
+        node.id === nodeId
+          ? { ...node, ...update, ...snapPointToGrid({ ...node, ...update }) }
+          : node,
       ),
     }));
   };
@@ -1064,22 +1291,14 @@ export default function MapMakerPage() {
                 aria-label="Map connections"
               >
                 <defs>
-                  <marker
-                    id="map-link-arrow"
-                    markerHeight="16"
-                    markerWidth="16"
-                    orient="auto-start-reverse"
-                    refX="13"
-                    refY="5"
-                    viewBox="0 0 14 10"
-                  >
-                    <path
-                      d="M 0 0 L 14 5 L 0 10 z"
-                      fill="#fbbf24"
-                      stroke="#0f172a"
-                      strokeWidth="1.25"
-                    />
-                  </marker>
+                  <style>{`
+                    @keyframes pixel-road-flow {
+                      to { stroke-dashoffset: -32; }
+                    }
+                    .pixel-road-flow {
+                      animation: pixel-road-flow 720ms steps(2, end) infinite;
+                    }
+                  `}</style>
                 </defs>
                 {map.nodes.flatMap((node) =>
                   node.children.map((childId) => {
@@ -1089,17 +1308,18 @@ export default function MapMakerPage() {
                     const isSelected =
                       selectedEdge?.sourceId === node.id &&
                       selectedEdge.targetId === childId;
-                    const path = child
-                      ? getNodeConnectionPath(
+                    const points = child
+                      ? getNodeConnectionPoints(
                           node,
                           child,
                           getEdgeRouting(map.nodes, node, child),
                         )
                       : null;
-                    return child && path ? (
+                    const roadPath = points ? getRoadPath(points) : null;
+                    return child && points && roadPath ? (
                       <g key={`${node.id}-${child.id}`}>
                         <path
-                          d={path}
+                          d={roadPath}
                           fill="none"
                           onClick={(event) => {
                             event.stopPropagation();
@@ -1127,22 +1347,10 @@ export default function MapMakerPage() {
                             beginCanvasInteraction(event);
                           }}
                           stroke="transparent"
-                          strokeWidth="20"
+                          strokeWidth={PIXEL_ROAD_HIT_WIDTH}
                           style={{ pointerEvents: "stroke", cursor: "pointer" }}
                         />
-                        <path
-                          className={
-                            isSelected ? "stroke-red-300" : "stroke-amber-300"
-                          }
-                          d={path}
-                          fill="none"
-                          markerEnd="url(#map-link-arrow)"
-                          pointerEvents="none"
-                          strokeDasharray={isSelected ? undefined : "8 8"}
-                          strokeLinecap="square"
-                          strokeLinejoin="miter"
-                          strokeWidth="2"
-                        />
+                        <PixelRoadEdge isSelected={isSelected} points={points} />
                       </g>
                     ) : null;
                   }),
