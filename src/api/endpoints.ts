@@ -8,6 +8,10 @@ export const ENDPOINTS = {
   REFRESH: "/auth/jwt/refresh/",
   TARGET_TEAMS: "/nodes/target-teams/",
   TARGET_ATTACK: "/nodes/target-attack/",
+  MAPS: "/maps/",
+  NODES: "/nodes/",
+  SET_NODE_RELATION: "/nodes/set-relation/",
+  NODE: (id: number) => `/nodes/${id}/`,
   TEAM_STREAM: "/teams/stream/",
   TEAM_STREAM_TICKET: "/teams/stream-ticket/",
 } as const;

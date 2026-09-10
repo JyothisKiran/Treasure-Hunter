@@ -47,9 +47,9 @@ export default function App() {
               <Route path="/" element={<HomePage />} />
               <Route path="/login" element={<LoginPage />} />
               <Route path="/signup" element={<SignUp />} />
-              <Route path="/map-maker" element={<MapMakerPage />} />
             </Route>
             <Route element={<RequireAuth />}>
+              <Route path="/map-maker" element={<MapMakerPage />} />
               <Route path="/game-over" element={<GameOverPage />} />
               <Route path="/victory" element={<VictoryPage />} />
               <Route element={<GameLayout />}>

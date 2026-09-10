@@ -6,13 +6,12 @@ import {
   type PointerEvent as ReactPointerEvent,
   type WheelEvent,
 } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  Download,
   Minus,
   Plus,
   RotateCcw,
   Trash2,
-  Upload,
   X,
 } from "lucide-react";
 
@@ -20,7 +19,21 @@ import { Button } from "@/components/ui/8bit/button";
 import { Input } from "@/components/ui/8bit/input";
 import { Label } from "@/components/ui/8bit/label";
 import { toast } from "@/components/ui/8bit/toast";
-import type { MapNode, MapNodeType, TreasureMap } from "@/types/map";
+import {
+  MAP_MAKER_MAPS_QUERY_KEY,
+  useMapMakerMaps,
+} from "@/hooks/queries/useMapMakerMaps";
+import { mapService } from "@/services/map.service";
+import type {
+  BackendMap,
+  BackendMapNode,
+  CreateMapNodeRequest,
+  CreateMapNodeResponse,
+  MapNode,
+  MapNodeType,
+  SetNodeRelationRequest,
+  TreasureMap,
+} from "@/types/map";
 
 const STORAGE_KEY = "treasure-hunter-map-maker";
 const NODE_WIDTH = 220;
@@ -28,6 +41,7 @@ const NODE_HEIGHT = 132;
 const NODE_HALF_WIDTH = NODE_WIDTH / 2;
 const NODE_HALF_HEIGHT = NODE_HEIGHT / 2;
 const ALIGNMENT_EPSILON = 4;
+const ROUTING_LANE_GAP = 28;
 const DEFAULT_MAP: TreasureMap = {
   id: "treasure-map-1",
   name: "Untitled Expedition",
@@ -36,32 +50,37 @@ const DEFAULT_MAP: TreasureMap = {
 type DraftNode = { type: MapNodeType; question: string; answer: string };
 type EdgeSelection = { sourceId: string; targetId: string };
 type ContextMenuState = { nodeId: string; x: number; y: number };
+type EdgeRouting = {
+  sourcePortOffset: number;
+  targetPortOffset: number;
+  laneOffset: number;
+};
 const EMPTY_DRAFT: DraftNode = { type: "NODE", question: "", answer: "" };
 
-interface SaveFilePickerOptions {
-  suggestedName: string;
-  types: Array<{
-    description: string;
-    accept: Record<string, string[]>;
-  }>;
-}
+// interface SaveFilePickerOptions {
+//   suggestedName: string;
+//   types: Array<{
+//     description: string;
+//     accept: Record<string, string[]>;
+//   }>;
+// }
 
-interface FileSystemWritableFileStreamLike {
-  write(data: string): Promise<void>;
-  close(): Promise<void>;
-}
+// interface FileSystemWritableFileStreamLike {
+//   write(data: string): Promise<void>;
+//   close(): Promise<void>;
+// }
 
-interface FileSystemFileHandleLike {
-  createWritable(): Promise<FileSystemWritableFileStreamLike>;
-}
+// interface FileSystemFileHandleLike {
+//   createWritable(): Promise<FileSystemWritableFileStreamLike>;
+// }
 
-type SaveFilePicker = (
-  options: SaveFilePickerOptions,
-) => Promise<FileSystemFileHandleLike>;
+// type SaveFilePicker = (
+//   options: SaveFilePickerOptions,
+// ) => Promise<FileSystemFileHandleLike>;
 
-type WindowWithSaveFilePicker = Window & {
-  showSaveFilePicker?: SaveFilePicker;
-};
+// type WindowWithSaveFilePicker = Window & {
+//   showSaveFilePicker?: SaveFilePicker;
+// };
 
 function isMapNode(value: unknown): value is MapNode {
   if (!value || typeof value !== "object") return false;
@@ -194,28 +213,93 @@ function canAddChild(node: MapNode): boolean {
   return node.children.length < childLimit;
 }
 
-function getNodeConnectionPath(source: MapNode, target: MapNode) {
+function getPortOffset(index: number, count: number, maxOffset: number) {
+  if (count < 2) return 0;
+  return -maxOffset + (index / (count - 1)) * maxOffset * 2;
+}
+
+function getLaneOffset(index: number, count: number) {
+  return (index - (count - 1) / 2) * ROUTING_LANE_GAP;
+}
+
+function getEdgeRouting(
+  nodes: MapNode[],
+  source: MapNode,
+  target: MapNode,
+): EdgeRouting {
+  const outgoingIds = source.children.filter((childId) =>
+    nodes.some((node) => node.id === childId),
+  );
+  const incomingIds = nodes
+    .filter((node) => node.children.includes(target.id))
+    .map((node) => node.id);
+  const sourceIndex = outgoingIds.indexOf(target.id);
+  const targetIndex = incomingIds.indexOf(source.id);
+  const sourcePortOffset = getPortOffset(
+    sourceIndex,
+    outgoingIds.length,
+    Math.min(NODE_HALF_WIDTH - 18, NODE_HALF_HEIGHT - 18),
+  );
+  const targetPortOffset = getPortOffset(
+    targetIndex,
+    incomingIds.length,
+    Math.min(NODE_HALF_WIDTH - 18, NODE_HALF_HEIGHT - 18),
+  );
+  const laneOffset =
+    outgoingIds.length > 1
+      ? getLaneOffset(sourceIndex, outgoingIds.length)
+      : getLaneOffset(targetIndex, incomingIds.length);
+
+  return { sourcePortOffset, targetPortOffset, laneOffset };
+}
+
+function getNodeConnectionPath(
+  source: MapNode,
+  target: MapNode,
+  routing: EdgeRouting,
+) {
   const deltaX = target.x - source.x;
   const deltaY = target.y - source.y;
+  const isVerticallyAligned = Math.abs(deltaX) <= ALIGNMENT_EPSILON;
+  const isHorizontallyAligned = Math.abs(deltaY) <= ALIGNMENT_EPSILON;
+  const isVerticalRoute =
+    isVerticallyAligned ||
+    (!isHorizontallyAligned && Math.abs(deltaY) >= Math.abs(deltaX));
 
-  if (Math.abs(deltaY) <= ALIGNMENT_EPSILON) {
-    const direction = deltaX >= 0 ? 1 : -1;
-    return `M ${source.x + direction * NODE_HALF_WIDTH} ${source.y} L ${target.x - direction * NODE_HALF_WIDTH} ${target.y}`;
-  }
-
-  if (Math.abs(deltaX) <= ALIGNMENT_EPSILON) {
+  if (isVerticalRoute) {
     const direction = deltaY >= 0 ? 1 : -1;
-    return `M ${source.x} ${source.y + direction * NODE_HALF_HEIGHT} L ${target.x} ${target.y - direction * NODE_HALF_HEIGHT}`;
+    const sourceX = source.x + routing.sourcePortOffset;
+    const targetX = target.x + routing.targetPortOffset;
+    const sourceY = source.y + direction * NODE_HALF_HEIGHT;
+    const targetY = target.y - direction * NODE_HALF_HEIGHT;
+    if (
+      isVerticallyAligned &&
+      Math.abs(sourceX - targetX) <= ALIGNMENT_EPSILON
+    )
+      return `M ${sourceX} ${sourceY} L ${targetX} ${targetY}`;
+    const midpoint = (sourceY + targetY) / 2;
+    const maxLaneOffset = Math.max(0, Math.abs(targetY - sourceY) / 2 - 12);
+    const bendY =
+      midpoint +
+      Math.max(-maxLaneOffset, Math.min(maxLaneOffset, routing.laneOffset));
+    return `M ${sourceX} ${sourceY} L ${sourceX} ${bendY} L ${targetX} ${bendY} L ${targetX} ${targetY}`;
   }
 
   const direction = deltaX >= 0 ? 1 : -1;
   const sourceX = source.x + direction * NODE_HALF_WIDTH;
-  const sourceY = source.y;
   const targetX = target.x - direction * NODE_HALF_WIDTH;
-  const targetY = target.y;
+  const sourceY = source.y + routing.sourcePortOffset;
+  const targetY = target.y + routing.targetPortOffset;
+  if (
+    isHorizontallyAligned &&
+    Math.abs(sourceY - targetY) <= ALIGNMENT_EPSILON
+  )
+    return `M ${sourceX} ${sourceY} L ${targetX} ${targetY}`;
+  const midpoint = (sourceX + targetX) / 2;
+  const maxLaneOffset = Math.max(0, Math.abs(targetX - sourceX) / 2 - 12);
   const bendX =
-    source.x +
-    direction * (NODE_HALF_WIDTH + Math.max(60, Math.abs(deltaX) * 0.35));
+    midpoint +
+    Math.max(-maxLaneOffset, Math.min(maxLaneOffset, routing.laneOffset));
 
   return `M ${sourceX} ${sourceY} L ${bendX} ${sourceY} L ${bendX} ${targetY} L ${targetX} ${targetY}`;
 }
@@ -229,6 +313,98 @@ function getNodePlacementNearParent(parent: MapNode, siblingCount: number) {
     x: parent.x + offsetX,
     y: parent.y + offsetY,
   };
+}
+
+function getBackendId(nodeId: string): number | null {  
+  const id = Number(nodeId);
+  return Number.isSafeInteger(id) && id >= 0 && String(id) === nodeId
+    ? id
+    : null;
+}
+
+function unwrapCreatedNode(response: CreateMapNodeResponse): BackendMapNode {
+  return "id" in response ? response : response.data;
+}
+
+function mapFromBackendMap(
+  backendMap: BackendMap,
+  previousNodes: MapNode[] = [],
+): TreasureMap {
+  const nodeIds = new Set(backendMap.nodes.map((node) => node.id));
+  const childrenByParent = new Map<number, Set<number>>(
+    backendMap.nodes.map((node) => [
+      node.id,
+      new Set(node.children_ids.filter((childId) => nodeIds.has(childId))),
+    ]),
+  );
+  const cycleNodeIds = new Set<number>();
+  const addChild = (parentId: number | null, childId: number) => {
+    if (parentId === null || !nodeIds.has(parentId) || !nodeIds.has(childId))
+      return;
+    childrenByParent.get(parentId)?.add(childId);
+  };
+
+  backendMap.nodes.forEach((node) => {
+    addChild(node.parent_id, node.id);
+    addChild(node.alt_parent_id, node.id);
+    if (node.alt_child_id !== null) addChild(node.id, node.alt_child_id);
+  });
+  backendMap.edges.forEach((edge) => {
+    addChild(edge.source, edge.target);
+    if (edge.is_cycle) {
+      cycleNodeIds.add(edge.source);
+      cycleNodeIds.add(edge.target);
+    }
+  });
+  const positions = new Map(
+    previousNodes.map((node) => [node.id, { x: node.x, y: node.y }]),
+  );
+
+  const nodes = backendMap.nodes.map((node, index): MapNode => {
+    const id = String(node.id);
+    return {
+      id,
+      type: node.effects === "JUNCTION" ? "JUNCTION" : "NODE",
+      ...(positions.get(id) ?? nextPosition(index)),
+      question: node.data,
+      answer: node.answer ?? undefined,
+      children: [...(childrenByParent.get(node.id) ?? [])].map(String),
+      isCycle: cycleNodeIds.has(node.id),
+      metadata: {
+        clue: node.clue,
+        effects: node.effects,
+        score: node.score,
+        bonus: node.bonus,
+        life: node.life,
+        attack: node.attack,
+        isNearest: node.is_nearest,
+        parentId: node.parent_id,
+        altParentId: node.alt_parent_id,
+        altChildId: node.alt_child_id,
+        level: node.level,
+        status: node.status,
+        isCurrent: node.is_current,
+        isHead: node.is_head,
+        isCheckpoint: node.is_checkpoint,
+        createdAt: node.created_at,
+      },
+    };
+  });
+
+  return {
+    id: String(backendMap.team_state?.id ?? "server-map"),
+    name: backendMap.team_state?.name ?? "Team Map",
+    nodes: layoutLoops(nodes),
+  };
+}
+
+function mapFromBackendMaps(
+  backendMaps: BackendMap,
+  previousNodes: MapNode[] = [],
+): TreasureMap {
+  return backendMaps.nodes.length
+    ? mapFromBackendMap(backendMaps, previousNodes)
+    : DEFAULT_MAP;
 }
 
 export default function MapMakerPage() {
@@ -250,7 +426,30 @@ export default function MapMakerPage() {
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(
     null,
   );
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const queryClient = useQueryClient();
+  const {
+    data: backendMaps,
+    isError: isMapLoadError,
+    isPending: isMapLoading,
+  } = useMapMakerMaps();
+  const createNodeMutation = useMutation<
+    CreateMapNodeResponse,
+    Error,
+    CreateMapNodeRequest
+  >({
+    mutationFn: async (data) => (await mapService.createNode(data)).data,
+  });
+  const setRelationMutation = useMutation<void, Error, SetNodeRelationRequest>({
+    mutationFn: async (data) => {
+      await mapService.setRelation(data);
+    },
+  });
+  const deleteNodeMutation = useMutation<void, Error, number>({
+    mutationFn: async (id) => {
+      await mapService.deleteNode(id);
+    },
+  });
+  // const fileInputRef = useRef<HTMLInputElement>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{
     kind: "pan" | "node";
@@ -263,10 +462,33 @@ export default function MapMakerPage() {
   } | null>(null);
   const pointersRef = useRef(new Map<number, { x: number; y: number }>());
   const pinchRef = useRef<{ distance: number; zoom: number } | null>(null);
-  const cycleNodes = findCycleNodes(map.nodes);
+  const edgePointerRef = useRef<{
+    id: number;
+    moved: boolean;
+    sourceId: string;
+    targetId: string;
+  } | null>(null);
+  const cycleNodes = new Set([
+    ...findCycleNodes(map.nodes),
+    ...map.nodes.filter((node) => node.isCycle).map((node) => node.id),
+  ]);
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(map));
   }, [map]);
+  useEffect(() => {
+    if (!backendMaps) return;
+    const syncMap = window.setTimeout(() => {      
+      setMap((current) => mapFromBackendMaps(backendMaps, current.nodes));
+      setSelectedNodeId(null);
+      setSelectedEdge(null);
+      setConnectionSourceId(null);
+    }, 0);
+    return () => window.clearTimeout(syncMap);
+  }, [backendMaps]);
+  useEffect(() => {
+    if (isMapLoadError)
+      toast("Could not load the server map; using the local editor map");
+  }, [isMapLoadError]);
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") setContextMenu(null);
@@ -294,11 +516,7 @@ export default function MapMakerPage() {
     setZoom(boundedZoom);
   };
 
-  const handleCanvasPointerDown = (
-    event: ReactPointerEvent<HTMLDivElement>,
-  ) => {
-    setContextMenu(null);
-    if (event.target !== event.currentTarget) return;
+  const beginCanvasInteraction = (event: ReactPointerEvent<Element>) => {
     setSelectedNodeId(null);
     setSelectedEdge(null);
     pointersRef.current.set(event.pointerId, {
@@ -317,7 +535,7 @@ export default function MapMakerPage() {
       dragRef.current = null;
       return;
     }
-    event.currentTarget.setPointerCapture(event.pointerId);
+    viewportRef.current?.setPointerCapture(event.pointerId);
     dragRef.current = {
       kind: "pan",
       startX: event.clientX,
@@ -326,6 +544,14 @@ export default function MapMakerPage() {
       originY: pan.y,
       moved: false,
     };
+  };
+
+  const handleCanvasPointerDown = (
+    event: ReactPointerEvent<HTMLDivElement>,
+  ) => {
+    setContextMenu(null);
+    if (event.target !== event.currentTarget) return;
+    beginCanvasInteraction(event);
   };
 
   const handleCanvasPointerMove = (event: ReactPointerEvent<HTMLElement>) => {
@@ -348,6 +574,8 @@ export default function MapMakerPage() {
     const deltaX = event.clientX - drag.startX;
     const deltaY = event.clientY - drag.startY;
     if (Math.abs(deltaX) > 4 || Math.abs(deltaY) > 4) drag.moved = true;
+    if (edgePointerRef.current?.id === event.pointerId && drag.moved)
+      edgePointerRef.current.moved = true;
     if (drag.kind === "pan")
       setPan({ x: drag.originX + deltaX, y: drag.originY + deltaY });
     else if (drag.id)
@@ -358,6 +586,20 @@ export default function MapMakerPage() {
   };
 
   const finishCanvasPointer = (event: ReactPointerEvent<HTMLElement>) => {
+    const edgePointer = edgePointerRef.current;
+    if (
+      event.type !== "pointercancel" &&
+      edgePointer?.id === event.pointerId &&
+      !edgePointer.moved
+    ) {
+      setContextMenu(null);
+      setSelectedEdge({
+        sourceId: edgePointer.sourceId,
+        targetId: edgePointer.targetId,
+      });
+      setSelectedNodeId(null);
+      edgePointerRef.current = null;
+    }
     pointersRef.current.delete(event.pointerId);
     if (pointersRef.current.size < 2) pinchRef.current = null;
     if (dragRef.current?.kind === "pan" && dragRef.current.moved)
@@ -409,7 +651,7 @@ export default function MapMakerPage() {
     setDialogOpen(true);
   };
 
-  const saveDraft = () => {
+  const saveDraft = async () => {
     if (
       draft.type === "NODE" &&
       (!draft.question.trim() || !draft.answer.trim())
@@ -435,39 +677,86 @@ export default function MapMakerPage() {
         setDialogOpen(false);
         return;
       }
+      const parentBackendId = parentNode ? getBackendId(parentNode.id) : null;
+      if (parentNode && parentBackendId === null) {
+        toast("This local-only parent cannot be used for a server node");
+        return;
+      }
       const basePosition = parentNode
         ? getNodePlacementNearParent(parentNode, parentNode.children.length)
         : nextPosition(map.nodes.length);
-      const node: MapNode = {
-        id: `${draft.type.toLowerCase()}-${map.nodes.length + 1}`,
-        type: draft.type,
-        ...basePosition,
-        children: [],
-        question: draft.type === "NODE" ? draft.question.trim() : undefined,
-        answer: draft.type === "NODE" ? draft.answer.trim() : undefined,
-      };
-      setMap((current) => {
-        const nextNodes = [...current.nodes, node];
-        const nodesWithParent = parentNode
-          ? nextNodes.map((existingNode) =>
-              existingNode.id === parentNode.id
-                ? { ...existingNode, children: [...existingNode.children, node.id] }
-                : existingNode,
-            )
-          : nextNodes;
-        return {
-          ...current,
-          nodes: layoutLoops(nodesWithParent),
+      const question = draft.question.trim();
+      const answer = draft.answer.trim();
+      try {
+        const created = unwrapCreatedNode(
+          await createNodeMutation.mutateAsync({
+            data: draft.type === "JUNCTION" ? "JUNCTION" : question,
+            clue: draft.type === "JUNCTION" ? "" : question,
+            answer: draft.type === "JUNCTION" ? "" : answer,
+            effects: draft.type === "JUNCTION" ? "JUNCTION" : "UNLOCKED",
+            parent: parentBackendId
+          }),
+        );
+        const node: MapNode = {
+          id: String(created.id),
+          type: created.effects === "JUNCTION" ? "JUNCTION" : "NODE",
+          ...basePosition,
+          children: [],
+          question: created.data,
+          answer: created.answer ?? undefined,
+          metadata: {
+            clue: created.clue,
+            effects: created.effects,
+            score: created.score,
+            bonus: created.bonus,
+            life: created.life,
+            attack: created.attack,
+            isNearest: created.is_nearest,
+            parentId: created.parent_id,
+            altParentId: created.alt_parent_id,
+            altChildId: created.alt_child_id,
+            level: created.level,
+            status: created.status,
+            isCurrent: created.is_current,
+            isHead: created.is_head,
+            isCheckpoint: created.is_checkpoint,
+            createdAt: created.created_at,
+          },
         };
-      });
-      setSelectedNodeId(node.id);
-      setParentNodeIdForNewChild(null);
-      toast(parentNode ? `${draft.type} node added as child` : `${draft.type} node added`);
+        setMap((current) => {
+          const nextNodes = [...current.nodes, node];
+          const nodesWithParent = parentNode
+            ? nextNodes.map((existingNode) =>
+                existingNode.id === parentNode.id
+                  ? {
+                      ...existingNode,
+                      children: [...existingNode.children, node.id],
+                    }
+                  : existingNode,
+              )
+            : nextNodes;
+          return { ...current, nodes: layoutLoops(nodesWithParent) };
+        });
+        setSelectedNodeId(node.id);
+        setParentNodeIdForNewChild(null);
+        setDialogOpen(false);
+        void queryClient.invalidateQueries({
+          queryKey: MAP_MAKER_MAPS_QUERY_KEY,
+        });
+        toast(
+          parentNode
+            ? `${draft.type} node added as child`
+            : `${draft.type} node added`,
+        );
+      } catch {
+        toast("Could not create the node. Your graph was not changed.");
+      }
+      return;
     }
     setDialogOpen(false);
   };
 
-  const deleteNode = (nodeId: string) => {
+  const removeNodeLocally = (nodeId: string) => {
     setMap((current) => ({
       ...current,
       nodes: current.nodes
@@ -490,7 +779,25 @@ export default function MapMakerPage() {
       current === nodeId ? null : current,
     );
     setContextMenu(null);
-    toast("Node deleted");
+  };
+
+  const deleteNode = async (nodeId: string) => {
+    const backendId = getBackendId(nodeId);
+    if (backendId === null) {
+      removeNodeLocally(nodeId);
+      toast("Local-only node deleted");
+      return;
+    }
+    try {
+      await deleteNodeMutation.mutateAsync(backendId);
+      removeNodeLocally(nodeId);
+      void queryClient.invalidateQueries({
+        queryKey: MAP_MAKER_MAPS_QUERY_KEY,
+      });
+      toast("Node deleted");
+    } catch {
+      toast("Could not delete the node. Your graph was not changed.");
+    }
   };
 
   const deleteConnection = () => {
@@ -509,10 +816,10 @@ export default function MapMakerPage() {
       ),
     }));
     setSelectedEdge(null);
-    toast("Connection removed");
+    toast("Connection removed locally");
   };
 
-  const connectNodes = (targetId: string) => {
+  const connectNodes = async (targetId: string) => {
     if (!connectionSourceId) return;
     const source = map.nodes.find((node) => node.id === connectionSourceId);
     const target = map.nodes.find((node) => node.id === targetId);
@@ -533,21 +840,41 @@ export default function MapMakerPage() {
       setConnectionSourceId(null);
       return;
     }
-    setMap((current) => ({
-      ...current,
-      nodes: layoutLoops(
-        current.nodes.map((node) =>
-          node.id === connectionSourceId
-            ? { ...node, children: [...node.children, targetId] }
-            : node,
+    const sourceBackendId = getBackendId(source.id);
+    const targetBackendId = getBackendId(target.id);
+    if (sourceBackendId === null || targetBackendId === null) {
+      toast("Only server-backed nodes can be connected");
+      setConnectionSourceId(null);
+      return;
+    }
+    try {
+      await setRelationMutation.mutateAsync({
+        parent_id: sourceBackendId,
+        child_id: targetBackendId,
+      });
+      setMap((current) => ({
+        ...current,
+        nodes: layoutLoops(
+          current.nodes.map((node) =>
+            node.id === connectionSourceId
+              ? { ...node, children: [...node.children, targetId] }
+              : node,
+          ),
         ),
-      ),
-    }));
-    setConnectionSourceId(null);
-    toast("Nodes connected");
+      }));
+      void queryClient.invalidateQueries({
+        queryKey: MAP_MAKER_MAPS_QUERY_KEY,
+      });
+      toast("Nodes connected");
+    } catch {
+      toast("Could not create that connection. Your graph was not changed.");
+    } finally {
+      setConnectionSourceId(null);
+    }
   };
 
   const startConnection = (nodeId: string) => {
+    if (setRelationMutation.isPending) return;
     setConnectionSourceId(nodeId);
     setSelectedNodeId(nodeId);
     setSelectedEdge(null);
@@ -575,64 +902,64 @@ export default function MapMakerPage() {
     setSelectedEdge(null);
   };
 
-  const exportMap = async () => {
-    const filename = `${map.name.toLowerCase().replace(/[^a-z0-9]+/g, "-") || "treasure-map"}.json`;
-    const content = JSON.stringify(map, null, 2);
-    const saveFilePicker = (window as WindowWithSaveFilePicker)
-      .showSaveFilePicker;
+  // const exportMap = async () => {
+  //   const filename = `${map.name.toLowerCase().replace(/[^a-z0-9]+/g, "-") || "treasure-map"}.json`;
+  //   const content = JSON.stringify(map, null, 2);
+  //   const saveFilePicker = (window as WindowWithSaveFilePicker)
+  //     .showSaveFilePicker;
 
-    if (saveFilePicker) {
-      try {
-        const fileHandle = await saveFilePicker({
-          suggestedName: filename,
-          types: [
-            {
-              description: "JSON files",
-              accept: { "application/json": [".json"] },
-            },
-          ],
-        });
-        const writable = await fileHandle.createWritable();
-        await writable.write(content);
-        await writable.close();
-        toast("Map JSON saved successfully");
-      } catch (error: unknown) {
-        if (error instanceof DOMException && error.name === "AbortError")
-          return;
-        toast("Failed to save map JSON");
-      }
-      return;
-    }
+  //   if (saveFilePicker) {
+  //     try {
+  //       const fileHandle = await saveFilePicker({
+  //         suggestedName: filename,
+  //         types: [
+  //           {
+  //             description: "JSON files",
+  //             accept: { "application/json": [".json"] },
+  //           },
+  //         ],
+  //       });
+  //       const writable = await fileHandle.createWritable();
+  //       await writable.write(content);
+  //       await writable.close();
+  //       toast("Map JSON saved successfully");
+  //     } catch (error: unknown) {
+  //       if (error instanceof DOMException && error.name === "AbortError")
+  //         return;
+  //       toast("Failed to save map JSON");
+  //     }
+  //     return;
+  //   }
 
-    const url = URL.createObjectURL(
-      new Blob([content], { type: "application/json" }),
-    );
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = filename;
-    try {
-      document.body.appendChild(link);
-      link.click();
-      toast("Map JSON download started");
-    } catch {
-      toast("Failed to save map JSON");
-    } finally {
-      link.remove();
-      URL.revokeObjectURL(url);
-    }
-  };
+  //   const url = URL.createObjectURL(
+  //     new Blob([content], { type: "application/json" }),
+  //   );
+  //   const link = document.createElement("a");
+  //   link.href = url;
+  //   link.download = filename;
+  //   try {
+  //     document.body.appendChild(link);
+  //     link.click();
+  //     toast("Map JSON download started");
+  //   } catch {
+  //     toast("Failed to save map JSON");
+  //   } finally {
+  //     link.remove();
+  //     URL.revokeObjectURL(url);
+  //   }
+  // };
 
-  const importMap = async (file: File) => {
-    try {
-      const imported = parseMap(JSON.parse(await file.text()));
-      if (!imported) throw new Error("Invalid map");
-      setMap({ ...imported, nodes: layoutLoops(imported.nodes) });
-      setSelectedNodeId(null);
-      toast("Map JSON imported");
-    } catch {
-      toast("That file is not a valid treasure map");
-    }
-  };
+  // const importMap = async (file: File) => {
+  //   try {
+  //     const imported = parseMap(JSON.parse(await file.text()));
+  //     if (!imported) throw new Error("Invalid map");
+  //     setMap({ ...imported, nodes: layoutLoops(imported.nodes) });
+  //     setSelectedNodeId(null);
+  //     toast("Map JSON imported");
+  //   } catch {
+  //     toast("That file is not a valid treasure map");
+  //   }
+  // };
 
   const resetMap = () => {
     setMap(DEFAULT_MAP);
@@ -678,41 +1005,10 @@ export default function MapMakerPage() {
   };
 
   return (
-    <main className="map-maker-workspace retro flex h-dvh min-h-0 flex-col overflow-hidden bg-slate-950/90 pt-5 text-left text-xs text-slate-100 sm:pt-5">
+    <main className="map-maker-workspace retro flex h-dvh min-h-0 flex-col overflow-hidden bg-slate-950/90 text-left text-xs text-slate-100">
       <div className="flex min-h-0 w-full flex-1 flex-col">
-        <header className="sticky top-0 z-20 mb-3 flex shrink-0 flex-col gap-3 border-b-4 border-amber-400 bg-slate-950/95 px-3 pb-3 sm:flex-row sm:items-center sm:justify-between sm:px-6">
-          <div>
-            <p className="mb-1 text-[9px] tracking-[0.2em] text-amber-300 sm:text-[10px]">
-              ADMIN CONSTRUCTION DECK
-            </p>
-            <p className="m-0 text-sm text-amber-100">MAP MAKER</p>
-          </div>
-          <div className="flex flex-wrap gap-2 sm:gap-3">
-            <Button onClick={() => fileInputRef.current?.click()} size="compact" type="button">
-              <Upload className="size-4" /> IMPORT
-            </Button>
-            <input
-              accept="application/json,.json"
-              className="hidden"
-              onChange={(event) => {
-                const file = event.target.files?.[0];
-                if (file) void importMap(file);
-                event.target.value = "";
-              }}
-              ref={fileInputRef}
-              type="file"
-            />
-            <Button onClick={exportMap} size="compact" type="button">
-              <Download className="size-4" /> EXPORT JSON
-            </Button>
-          </div>
-        </header>
-
-        <section
-          className="flex min-h-0 min-w-0 flex-1 flex-col border-y-4 border-cyan-400 bg-slate-900 p-2 shadow-[6px_6px_0_rgba(8,145,178,0.25)] sm:p-3"
-          aria-label="Map canvas"
-        >
-          <div className="mb-2 flex min-w-0 shrink-0 flex-wrap items-center justify-between gap-3">
+        <header className="sticky top-0 z-20 flex shrink-0 flex-col gap-3 bg-slate-950/95 px-3 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+          <div className="py-2 flex w-full shrink-0 flex-wrap items-center justify-between gap-3">
             <Input
               aria-label="Map name"
               className="min-w-0 max-w-full flex-1 sm:max-w-sm"
@@ -722,17 +1018,27 @@ export default function MapMakerPage() {
               size="compact"
               value={map.name}
             />
-            <span className="text-[9px] text-cyan-200">
-              {map.nodes.length} NODES /{" "}
-              {map.nodes.reduce(
-                (count, node) => count + node.children.length,
-                0,
-              )}{" "}
-              LINKS
-            </span>
+            {map.nodes.length > 0 && (
+              <button
+                aria-label="Add node"
+                className="flex size-9 items-center justify-center border-2 border-emerald-300 bg-slate-950/90 text-emerald-200"
+                onClick={() => openAddDialog(null)}
+                title="Add node"
+                type="button"
+              >
+                <Plus className="size-4" />
+              </button>
+            )}
           </div>
+        </header>
+
+        <section
+          className="flex min-h-0 min-w-0 flex-1 flex-col border-y-4 bg-slate-900 shadow-[6px_6px_0_rgba(8,145,178,0.25)]"
+          aria-label="Map canvas"
+        >
+          
           <div
-            className="relative min-h-0 w-full flex-1 overflow-hidden border-2 border-dashed border-cyan-700 bg-slate-950"
+            className="relative flex h-full flex-col min-h-0 w-full flex-1 overflow-hidden border-2 border-dashed border-cyan-700 bg-slate-950"
             onPointerDown={handleCanvasPointerDown}
             onPointerMove={handleCanvasPointerMove}
             onPointerUp={finishCanvasPointer}
@@ -784,7 +1090,11 @@ export default function MapMakerPage() {
                       selectedEdge?.sourceId === node.id &&
                       selectedEdge.targetId === childId;
                     const path = child
-                      ? getNodeConnectionPath(node, child)
+                      ? getNodeConnectionPath(
+                          node,
+                          child,
+                          getEdgeRouting(map.nodes, node, child),
+                        )
                       : null;
                     return child && path ? (
                       <g key={`${node.id}-${child.id}`}>
@@ -793,6 +1103,11 @@ export default function MapMakerPage() {
                           fill="none"
                           onClick={(event) => {
                             event.stopPropagation();
+                            if (edgePointerRef.current?.moved) {
+                              edgePointerRef.current = null;
+                              return;
+                            }
+                            edgePointerRef.current = null;
                             setContextMenu(null);
                             setSelectedEdge({
                               sourceId: node.id,
@@ -800,7 +1115,17 @@ export default function MapMakerPage() {
                             });
                             setSelectedNodeId(null);
                           }}
-                          onPointerDown={(event) => event.stopPropagation()}
+                          onPointerDown={(event) => {
+                            event.stopPropagation();
+                            setContextMenu(null);
+                            edgePointerRef.current = {
+                              id: event.pointerId,
+                              moved: false,
+                              sourceId: node.id,
+                              targetId: child.id,
+                            };
+                            beginCanvasInteraction(event);
+                          }}
                           stroke="transparent"
                           strokeWidth="20"
                           style={{ pointerEvents: "stroke", cursor: "pointer" }}
@@ -898,6 +1223,7 @@ export default function MapMakerPage() {
                         }
                         dragRef.current = null;
                       }}
+                      style={{ height: NODE_HEIGHT, width: NODE_WIDTH }}
                     >
                       <div className="p-3">
                         <div className="block w-full text-left">
@@ -961,11 +1287,13 @@ export default function MapMakerPage() {
               >
                 <button
                   className="flex w-full items-center gap-2 border-2 border-transparent px-2 py-1.5 text-left text-[9px] text-red-200 hover:border-red-300 hover:bg-red-950"
-                  onClick={() => deleteNode(contextMenu.nodeId)}
+                  disabled={deleteNodeMutation.isPending}
+                  onClick={() => void deleteNode(contextMenu.nodeId)}
                   role="menuitem"
                   type="button"
                 >
-                  <Trash2 className="size-3" /> DELETE
+                  <Trash2 className="size-3" />
+                  {deleteNodeMutation.isPending ? "DELETING..." : "DELETE"}
                 </button>
               </div>
             )}
@@ -979,17 +1307,6 @@ export default function MapMakerPage() {
                   +
                 </span>
                 <span className="text-[9px]">ADD A NODE TO BEGIN</span>
-              </button>
-            )}
-            {map.nodes.length > 0 && (
-              <button
-                aria-label="Add node"
-                className="absolute left-3 top-3 flex size-9 items-center justify-center border-2 border-emerald-300 bg-slate-950/90 text-emerald-200"
-                onClick={() => openAddDialog(null)}
-                title="Add node"
-                type="button"
-              >
-                <Plus className="size-4" />
               </button>
             )}
             <div className="absolute right-3 top-3 flex items-center gap-1.5 border-2 border-cyan-600 bg-slate-950/90 p-1.5">
@@ -1020,14 +1337,15 @@ export default function MapMakerPage() {
                 RESET VIEW
               </button>
             </div>
-          </div>
-          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-[9px] text-slate-400">
-            <span>
-              {connectionSourceId
-                ? "SELECT A DESTINATION NODE"
-                : selectedEdge
-                  ? "CONNECTION SELECTED"
-                  : "SELECT A NODE OR CONNECTION"}
+          <div className="mt-auto mb-3 px-3 flex flex-wrap items-center justify-between gap-2 text-[9px] text-slate-400">
+                        <span className="text-[9px] text-cyan-200">
+              {map.nodes.length} NODES /{" "}
+              {map.nodes.reduce(
+                (count, node) => count + node.children.length,
+                0,
+              )}{" "}
+              LINKS
+              {isMapLoading && " / SYNCING"}
             </span>
             <div className="flex items-center gap-3">
               {selectedEdge && (
@@ -1044,6 +1362,7 @@ export default function MapMakerPage() {
                 <RotateCcw className="size-3" /> CLEAR
               </Button>
             </div>
+          </div>
           </div>
         </section>
       </div>
@@ -1141,8 +1460,17 @@ export default function MapMakerPage() {
                 >
                   CANCEL
                 </Button>
-                <Button onClick={saveDraft} size="compact" type="button">
-                  {editingNodeId ? "SAVE" : "CREATE"}
+                <Button
+                  disabled={createNodeMutation.isPending}
+                  onClick={() => void saveDraft()}
+                  size="compact"
+                  type="button"
+                >
+                  {createNodeMutation.isPending
+                    ? "CREATING..."
+                    : editingNodeId
+                      ? "SAVE"
+                      : "CREATE"}
                 </Button>
               </div>
             </div>
