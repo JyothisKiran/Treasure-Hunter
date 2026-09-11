@@ -1,9 +1,12 @@
 import { apiClient, ENDPOINTS } from "@/api";
 import type {
   BackendMap,
+  BackendMapNode,
   CreateMapNodeRequest,
   CreateMapNodeResponse,
+  RemoveNodeRelationRequest,
   SetNodeRelationRequest,
+  UpdateMapNodeRequest,
 } from "@/types/map";
 
 export const mapService = {
@@ -17,6 +20,14 @@ export const mapService = {
 
   setRelation(data: SetNodeRelationRequest) {
     return apiClient.post<void>(ENDPOINTS.SET_NODE_RELATION, data);
+  },
+
+  updateNode(id: number, data: UpdateMapNodeRequest) {
+    return apiClient.patch<BackendMapNode>(ENDPOINTS.NODE(id), data);
+  },
+
+  removeRelation(data: RemoveNodeRelationRequest) {
+    return apiClient.post<void>(ENDPOINTS.REMOVE_NODE_RELATION, data);
   },
 
   deleteNode(id: number) {

@@ -101,9 +101,20 @@ export interface CreateMapNodeRequest {
   alt_parent?: number;
 }
 
+export interface UpdateMapNodeRequest {
+  data?: string;
+  answer?: string;
+  effects?: string;
+}
+
 export type CreateMapNodeResponse = BackendMapNode | { data: BackendMapNode };
 
 export interface SetNodeRelationRequest {
   parent_id: number;
   child_id: number;
+}
+
+export interface RemoveNodeRelationRequest {
+  node1_id: number;
+  node2_id: number;
 }

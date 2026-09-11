@@ -11,6 +11,7 @@ export const ENDPOINTS = {
   MAPS: "/maps/",
   NODES: "/nodes/",
   SET_NODE_RELATION: "/nodes/set-relation/",
+  REMOVE_NODE_RELATION: "/nodes/remove-relation/",
   NODE: (id: number) => `/nodes/${id}/`,
   TEAM_STREAM: "/teams/stream/",
   TEAM_STREAM_TICKET: "/teams/stream-ticket/",

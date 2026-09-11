@@ -24,6 +24,10 @@ import {
   useMapMakerMaps,
 } from "@/hooks/queries/useMapMakerMaps";
 import { mapService } from "@/services/map.service";
+import {
+  PixiRoadLayer,
+  type PixiRoadEdge,
+} from "@/components/map-maker/PixiRoadLayer";
 import type {
   BackendMap,
   BackendMapNode,
@@ -31,8 +35,10 @@ import type {
   CreateMapNodeResponse,
   MapNode,
   MapNodeType,
+  RemoveNodeRelationRequest,
   SetNodeRelationRequest,
   TreasureMap,
+  UpdateMapNodeRequest,
 } from "@/types/map";
 
 const STORAGE_KEY = "treasure-hunter-map-maker";
@@ -60,7 +66,6 @@ type EdgeRouting = {
 };
 type MapPoint = { x: number; y: number };
 type RoadDirection = "up" | "right" | "down" | "left";
-type PixelRoadTile = MapPoint & { directions: Set<RoadDirection> };
 const EMPTY_DRAFT: DraftNode = { type: "NODE", question: "", answer: "" };
 
 // interface SaveFilePickerOptions {
@@ -133,14 +138,6 @@ function snapToGrid(value: number) {
 
 function snapPointToGrid(point: MapPoint): MapPoint {
   return { x: snapToGrid(point.x), y: snapToGrid(point.y) };
-}
-
-function pointToGridCell(point: MapPoint) {
-  return { x: Math.round(point.x / MAP_GRID_SIZE), y: Math.round(point.y / MAP_GRID_SIZE) };
-}
-
-function gridCellToPoint(cell: MapPoint): MapPoint {
-  return { x: cell.x * MAP_GRID_SIZE, y: cell.y * MAP_GRID_SIZE };
 }
 
 function isGridAligned(point: MapPoint) {
@@ -425,13 +422,6 @@ function getRoadPath(points: MapPoint[]) {
     .join(" ");
 }
 
-function getDirection(from: MapPoint, to: MapPoint): RoadDirection {
-  if (to.x > from.x) return "right";
-  if (to.x < from.x) return "left";
-  if (to.y > from.y) return "down";
-  return "up";
-}
-
 function oppositeDirection(direction: RoadDirection): RoadDirection {
   if (direction === "up") return "down";
   if (direction === "down") return "up";
@@ -439,93 +429,51 @@ function oppositeDirection(direction: RoadDirection): RoadDirection {
   return "left";
 }
 
-function getPixelRoadTiles(points: MapPoint[]): PixelRoadTile[] {
-  const tiles = new Map<string, PixelRoadTile>();
-  const addTile = (point: MapPoint, direction: RoadDirection) => {
-    const snapped = gridCellToPoint(pointToGridCell(point));
-    const key = `${snapped.x}:${snapped.y}`;
-    const tile = tiles.get(key) ?? { ...snapped, directions: new Set<RoadDirection>() };
-    tile.directions.add(direction);
-    tiles.set(key, tile);
+function getEndpointCaps(
+  source: MapNode,
+  target: MapNode,
+): { start: boolean; end: boolean } {
+  // An edge always enters/leaves a node, so a node-side road is normally open.
+  // A target with no outgoing relation is the only true graph termination we can
+  // derive from the persisted graph without inventing visual-only backend data.
+  return {
+    start: false,
+    end: source.id !== target.id && target.children.length === 0,
   };
-
-  points.slice(1).forEach((end, index) => {
-    const start = points[index];
-    const direction = getDirection(start, end);
-    const stepX = direction === "right" ? MAP_GRID_SIZE : direction === "left" ? -MAP_GRID_SIZE : 0;
-    const stepY = direction === "down" ? MAP_GRID_SIZE : direction === "up" ? -MAP_GRID_SIZE : 0;
-    let current = start;
-    while (current.x !== end.x || current.y !== end.y) {
-      const next = { x: current.x + stepX, y: current.y + stepY };
-      addTile(current, direction);
-      addTile(next, oppositeDirection(direction));
-      current = next;
-    }
-  });
-  return [...tiles.values()];
 }
 
-function getArrowPolygon(points: MapPoint[]) {
-  const end = points.at(-1);
-  const previous = points.at(-2);
-  if (!end || !previous) return "";
-  const centerX = end.x + PIXEL_ROAD_TILE_SIZE / 2;
-  const centerY = end.y + PIXEL_ROAD_TILE_SIZE / 2;
-  const direction = getDirection(previous, end);
-  if (direction === "right")
-    return `${centerX + 8},${centerY} ${centerX - 4},${centerY - 6} ${centerX - 4},${centerY + 6}`;
-  if (direction === "left")
-    return `${centerX - 8},${centerY} ${centerX + 4},${centerY - 6} ${centerX + 4},${centerY + 6}`;
-  if (direction === "down")
-    return `${centerX},${centerY + 8} ${centerX - 6},${centerY - 4} ${centerX + 6},${centerY - 4}`;
-  return `${centerX},${centerY - 8} ${centerX - 6},${centerY + 4} ${centerX + 6},${centerY + 4}`;
-}
+type MapRoadEdge = PixiRoadEdge & {
+  sourceId: string;
+  targetId: string;
+  roadPath: string;
+};
 
-function PixelRoadEdge({
-  points,
-  isSelected,
-}: {
-  points: MapPoint[];
-  isSelected: boolean;
-}) {
-  const tiles = getPixelRoadTiles(points);
-  const roadPath = getRoadPath(points);
-  const roadColor = isSelected ? "#fca5a5" : "#d6a657";
-  const roadShade = isSelected ? "#7f1d1d" : "#6d4c2f";
-
-  return (
-    <g pointerEvents="none">
-      {tiles.map((tile) => {
-        const has = (direction: RoadDirection) => tile.directions.has(direction);
-        const x = tile.x;
-        const y = tile.y;
-        return (
-          <g key={`${x}:${y}`} shapeRendering="crispEdges">
-            <rect fill="#241a12" height={PIXEL_ROAD_TILE_SIZE} width={PIXEL_ROAD_TILE_SIZE} x={x} y={y} />
-            <rect fill={roadShade} height="8" width="8" x={x + 4} y={y + 4} />
-            {has("up") && <rect fill={roadShade} height="8" width="8" x={x + 4} y={y} />}
-            {has("right") && <rect fill={roadShade} height="8" width="8" x={x + 8} y={y + 4} />}
-            {has("down") && <rect fill={roadShade} height="8" width="8" x={x + 4} y={y + 8} />}
-            {has("left") && <rect fill={roadShade} height="8" width="8" x={x} y={y + 4} />}
-            <rect fill={roadColor} height="4" width="4" x={x + 6} y={y + 6} />
-            {has("up") && <rect fill={roadColor} height="6" width="4" x={x + 6} y={y} />}
-            {has("right") && <rect fill={roadColor} height="4" width="6" x={x + 10} y={y + 6} />}
-            {has("down") && <rect fill={roadColor} height="6" width="4" x={x + 6} y={y + 10} />}
-            {has("left") && <rect fill={roadColor} height="4" width="6" x={x} y={y + 6} />}
-          </g>
-        );
-      })}
-      <path
-        className="pixel-road-flow"
-        d={roadPath}
-        fill="none"
-        stroke="#fff1a8"
-        strokeDasharray="4 28"
-        strokeLinecap="square"
-        strokeWidth="3"
-      />
-      <polygon fill="#fbbf24" points={getArrowPolygon(points)} stroke="#0f172a" strokeWidth="2" />
-    </g>
+function getMapRoadEdges(
+  nodes: MapNode[],
+  selectedEdge: EdgeSelection | null,
+): MapRoadEdge[] {
+  return nodes.flatMap((source) =>
+    source.children.flatMap((targetId) => {
+      const target = nodes.find((node) => node.id === targetId);
+      if (!target) return [];
+      const points = getNodeConnectionPoints(
+        source,
+        target,
+        getEdgeRouting(nodes, source, target),
+      );
+      if (points.length < 2) return [];
+      return [{
+        endpointCaps: getEndpointCaps(source, target),
+        id: `${source.id}-${target.id}`,
+        isSelected:
+          selectedEdge?.sourceId === source.id &&
+          selectedEdge.targetId === target.id,
+        points,
+        roadPath: getRoadPath(points),
+        sourceId: source.id,
+        targetId: target.id,
+      }];
+    }),
   );
 }
 
@@ -669,6 +617,23 @@ export default function MapMakerPage() {
       await mapService.setRelation(data);
     },
   });
+  const updateNodeMutation = useMutation<
+    BackendMapNode,
+    Error,
+    { id: number; data: UpdateMapNodeRequest }
+  >({
+    mutationFn: async ({ id, data }) =>
+      (await mapService.updateNode(id, data)).data,
+  });
+  const removeRelationMutation = useMutation<
+    void,
+    Error,
+    RemoveNodeRelationRequest
+  >({
+    mutationFn: async (data) => {
+      await mapService.removeRelation(data);
+    },
+  });
   const deleteNodeMutation = useMutation<void, Error, number>({
     mutationFn: async (id) => {
       await mapService.deleteNode(id);
@@ -697,6 +662,7 @@ export default function MapMakerPage() {
     ...findCycleNodes(map.nodes),
     ...map.nodes.filter((node) => node.isCycle).map((node) => node.id),
   ]);
+  const roadEdges = getMapRoadEdges(map.nodes, selectedEdge);
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(map));
   }, [map]);
@@ -878,6 +844,40 @@ export default function MapMakerPage() {
     setDialogOpen(true);
   };
 
+  const updateNodeFromBackend = (nodeId: string, updated: BackendMapNode) => {
+    setMap((current) => ({
+      ...current,
+      nodes: current.nodes.map((node) =>
+        node.id === nodeId
+          ? {
+              ...node,
+              type: updated.effects === "JUNCTION" ? "JUNCTION" : "NODE",
+              question: updated.data,
+              answer: updated.answer ?? undefined,
+              metadata: {
+                clue: updated.clue,
+                effects: updated.effects,
+                score: updated.score,
+                bonus: updated.bonus,
+                life: updated.life,
+                attack: updated.attack,
+                isNearest: updated.is_nearest,
+                parentId: updated.parent_id,
+                altParentId: updated.alt_parent_id,
+                altChildId: updated.alt_child_id,
+                level: updated.level,
+                status: updated.status,
+                isCurrent: updated.is_current,
+                isHead: updated.is_head,
+                isCheckpoint: updated.is_checkpoint,
+                createdAt: updated.created_at,
+              },
+            }
+          : node,
+      ),
+    }));
+  };
+
   const saveDraft = async () => {
     if (
       draft.type === "NODE" &&
@@ -887,13 +887,31 @@ export default function MapMakerPage() {
       return;
     }
     if (editingNodeId) {
-      updateNode(editingNodeId, {
-        type: draft.type,
-        question: draft.type === "NODE" ? draft.question.trim() : undefined,
-        answer: draft.type === "NODE" ? draft.answer.trim() : undefined,
-      });
-      setSelectedNodeId(editingNodeId);
-      toast("Node updated");
+      const backendId = getBackendId(editingNodeId);
+      if (backendId === null) {
+        toast("Only server-backed nodes can be edited");
+        return;
+      }
+      try {
+        const updated = await updateNodeMutation.mutateAsync({
+          id: backendId,
+          data: {
+            data: draft.type === "NODE" ? draft.question.trim() : "JUNCTION",
+            answer: draft.type === "NODE" ? draft.answer.trim() : "",
+            effects: draft.type === "JUNCTION" ? "JUNCTION" : "UNLOCKED",
+          },
+        });
+        updateNodeFromBackend(editingNodeId, updated);
+        setSelectedNodeId(editingNodeId);
+        setDialogOpen(false);
+        void queryClient.invalidateQueries({
+          queryKey: MAP_MAKER_MAPS_QUERY_KEY,
+        });
+        toast("Node updated");
+      } catch {
+        toast("Could not update the node. Your graph was not changed.");
+      }
+      return;
     } else {
       const parentNode = parentNodeIdForNewChild
         ? map.nodes.find((node) => node.id === parentNodeIdForNewChild) ?? null
@@ -1027,23 +1045,40 @@ export default function MapMakerPage() {
     }
   };
 
-  const deleteConnection = () => {
+  const deleteConnection = async () => {
     if (!selectedEdge) return;
-    setMap((current) => ({
-      ...current,
-      nodes: current.nodes.map((node) =>
-        node.id === selectedEdge.sourceId
-          ? {
-              ...node,
-              children: node.children.filter(
-                (childId) => childId !== selectedEdge.targetId,
-              ),
-            }
-          : node,
-      ),
-    }));
-    setSelectedEdge(null);
-    toast("Connection removed locally");
+    const sourceId = getBackendId(selectedEdge.sourceId);
+    const targetId = getBackendId(selectedEdge.targetId);
+    if (sourceId === null || targetId === null) {
+      toast("Only server-backed connections can be removed");
+      return;
+    }
+    try {
+      await removeRelationMutation.mutateAsync({
+        node1_id: sourceId,
+        node2_id: targetId,
+      });
+      setMap((current) => ({
+        ...current,
+        nodes: current.nodes.map((node) =>
+          node.id === selectedEdge.sourceId
+            ? {
+                ...node,
+                children: node.children.filter(
+                  (childId) => childId !== selectedEdge.targetId,
+                ),
+              }
+            : node,
+        ),
+      }));
+      setSelectedEdge(null);
+      void queryClient.invalidateQueries({
+        queryKey: MAP_MAKER_MAPS_QUERY_KEY,
+      });
+      toast("Connection removed");
+    } catch {
+      toast("Could not remove the connection. Your graph was not changed.");
+    }
   };
 
   const connectNodes = async (targetId: string) => {
@@ -1280,6 +1315,7 @@ export default function MapMakerPage() {
               touchAction: "none",
             }}
           >
+            <PixiRoadLayer edges={roadEdges} pan={pan} zoom={zoom} />
             <div
               className="absolute left-0 top-0 h-px w-px origin-top-left"
               style={{
@@ -1288,38 +1324,11 @@ export default function MapMakerPage() {
             >
               <svg
                 className="absolute left-0 top-0 size-px overflow-visible"
-                aria-label="Map connections"
+                aria-label="Map connection hit areas"
               >
-                <defs>
-                  <style>{`
-                    @keyframes pixel-road-flow {
-                      to { stroke-dashoffset: -32; }
-                    }
-                    .pixel-road-flow {
-                      animation: pixel-road-flow 720ms steps(2, end) infinite;
-                    }
-                  `}</style>
-                </defs>
-                {map.nodes.flatMap((node) =>
-                  node.children.map((childId) => {
-                    const child = map.nodes.find(
-                      (candidate) => candidate.id === childId,
-                    );
-                    const isSelected =
-                      selectedEdge?.sourceId === node.id &&
-                      selectedEdge.targetId === childId;
-                    const points = child
-                      ? getNodeConnectionPoints(
-                          node,
-                          child,
-                          getEdgeRouting(map.nodes, node, child),
-                        )
-                      : null;
-                    const roadPath = points ? getRoadPath(points) : null;
-                    return child && points && roadPath ? (
-                      <g key={`${node.id}-${child.id}`}>
-                        <path
-                          d={roadPath}
+                {roadEdges.map((edge) => (
+                  <path
+                          d={edge.roadPath}
                           fill="none"
                           onClick={(event) => {
                             event.stopPropagation();
@@ -1330,8 +1339,8 @@ export default function MapMakerPage() {
                             edgePointerRef.current = null;
                             setContextMenu(null);
                             setSelectedEdge({
-                              sourceId: node.id,
-                              targetId: child.id,
+                              sourceId: edge.sourceId,
+                              targetId: edge.targetId,
                             });
                             setSelectedNodeId(null);
                           }}
@@ -1341,20 +1350,17 @@ export default function MapMakerPage() {
                             edgePointerRef.current = {
                               id: event.pointerId,
                               moved: false,
-                              sourceId: node.id,
-                              targetId: child.id,
+                              sourceId: edge.sourceId,
+                              targetId: edge.targetId,
                             };
                             beginCanvasInteraction(event);
                           }}
                           stroke="transparent"
                           strokeWidth={PIXEL_ROAD_HIT_WIDTH}
                           style={{ pointerEvents: "stroke", cursor: "pointer" }}
+                          key={edge.id}
                         />
-                        <PixelRoadEdge isSelected={isSelected} points={points} />
-                      </g>
-                    ) : null;
-                  }),
-                )}
+                ))}
               </svg>
               {map.nodes.map((node) => {
                 const isSelected = node.id === selectedNodeId;
@@ -1363,7 +1369,7 @@ export default function MapMakerPage() {
                 const showConnectionActions = isHovered && canAddChild(node);
                 return (
                   <div
-                    className="absolute -translate-x-1/2 -translate-y-1/2"
+                    className="select-none absolute -translate-x-1/2 -translate-y-1/2"
                     key={node.id}
                     style={{ left: node.x, top: node.y }}
                   >
@@ -1516,8 +1522,8 @@ export default function MapMakerPage() {
                 </span>
                 <span className="text-[9px]">ADD A NODE TO BEGIN</span>
               </button>
-            )}
-            <div className="absolute right-3 top-3 flex items-center gap-1.5 border-2 border-cyan-600 bg-slate-950/90 p-1.5">
+              )}
+              <div className="select-none absolute right-3 top-3 flex items-center gap-1.5 border-2 border-cyan-600 bg-slate-950/90 p-1.5">
               <button
                 aria-label="Zoom out"
                 className="flex size-7 items-center justify-center border border-cyan-400 text-cyan-200"
@@ -1545,7 +1551,7 @@ export default function MapMakerPage() {
                 RESET VIEW
               </button>
             </div>
-          <div className="mt-auto mb-3 px-3 flex flex-wrap items-center justify-between gap-2 text-[9px] text-slate-400">
+          <div className="select-none mt-auto mb-3 px-3 flex flex-wrap items-center justify-between gap-2 text-[9px] text-slate-400">
                         <span className="text-[9px] text-cyan-200">
               {map.nodes.length} NODES /{" "}
               {map.nodes.reduce(
@@ -1558,12 +1564,14 @@ export default function MapMakerPage() {
             <div className="flex items-center gap-3">
               {selectedEdge && (
                 <Button
-                  onClick={deleteConnection}
+                  disabled={removeRelationMutation.isPending}
+                  onClick={() => void deleteConnection()}
                   size="compact"
                   type="button"
                   variant="destructive"
                 >
-                  <Trash2 className="size-3" /> REMOVE LINK
+                  <Trash2 className="size-3" />
+                  {removeRelationMutation.isPending ? "REMOVING..." : "REMOVE LINK"}
                 </Button>
               )}
               <Button onClick={resetMap} size="compact" type="button" variant="outline">
@@ -1669,13 +1677,15 @@ export default function MapMakerPage() {
                   CANCEL
                 </Button>
                 <Button
-                  disabled={createNodeMutation.isPending}
+                  disabled={createNodeMutation.isPending || updateNodeMutation.isPending}
                   onClick={() => void saveDraft()}
                   size="compact"
                   type="button"
                 >
                   {createNodeMutation.isPending
                     ? "CREATING..."
+                    : updateNodeMutation.isPending
+                      ? "SAVING..."
                     : editingNodeId
                       ? "SAVE"
                       : "CREATE"}
