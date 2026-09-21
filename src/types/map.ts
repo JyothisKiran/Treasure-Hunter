@@ -35,9 +35,13 @@ export interface BackendMapNodeMetadata {
   isHead: boolean;
   isCheckpoint: boolean;
   createdAt: string;
+  position?: { x: number; y: number };
+
 }
 
 export interface BackendMapNode {
+  x: number;
+  y: number;
   id: number;
   data: string;
   clue?: string | null;
@@ -58,6 +62,7 @@ export interface BackendMapNode {
   is_head: boolean;
   is_checkpoint: boolean;
   created_at: string;
+  position: { x: number; y: number };
 }
 
 export interface BackendMapEdge {
@@ -99,12 +104,14 @@ export interface CreateMapNodeRequest {
   attack?: number;
   parent?: number | null;
   alt_parent?: number;
+  position?: { x: number; y: number };
 }
 
 export interface UpdateMapNodeRequest {
   data?: string;
   answer?: string;
   effects?: string;
+  position?: { x: number; y: number };
 }
 
 export type CreateMapNodeResponse = BackendMapNode | { data: BackendMapNode };

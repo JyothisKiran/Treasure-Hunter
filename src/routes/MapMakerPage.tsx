@@ -7,13 +7,7 @@ import {
   type WheelEvent,
 } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import {
-  Minus,
-  Plus,
-  RotateCcw,
-  Trash2,
-  X,
-} from "lucide-react";
+import { Minus, Plus, RotateCcw, Trash2, X } from "lucide-react";
 
 import { Button } from "@/components/ui/8bit/button";
 import { Input } from "@/components/ui/8bit/input";
@@ -41,7 +35,6 @@ import type {
   UpdateMapNodeRequest,
 } from "@/types/map";
 
-const STORAGE_KEY = "treasure-hunter-map-maker";
 const NODE_WIDTH = 220;
 const NODE_HEIGHT = 132;
 const NODE_HALF_WIDTH = NODE_WIDTH / 2;
@@ -93,44 +86,7 @@ const EMPTY_DRAFT: DraftNode = { type: "NODE", question: "", answer: "" };
 //   showSaveFilePicker?: SaveFilePicker;
 // };
 
-function isMapNode(value: unknown): value is MapNode {
-  if (!value || typeof value !== "object") return false;
-  const node = value as Partial<MapNode>;
-  return (
-    typeof node.id === "string" &&
-    (node.type === "NODE" || node.type === "JUNCTION") &&
-    typeof node.x === "number" &&
-    typeof node.y === "number" &&
-    Array.isArray(node.children) &&
-    node.children.every((child) => typeof child === "string")
-  );
-}
 
-function parseMap(value: unknown): TreasureMap | null {
-  if (!value || typeof value !== "object") return null;
-  const map = value as Partial<TreasureMap>;
-  if (
-    typeof map.id !== "string" ||
-    typeof map.name !== "string" ||
-    !Array.isArray(map.nodes)
-  )
-    return null;
-  return map.nodes.every(isMapNode)
-    ? { id: map.id, name: map.name, nodes: map.nodes }
-    : null;
-}
-
-function loadMap(): TreasureMap {
-  try {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    const loaded = saved
-      ? (parseMap(JSON.parse(saved)) ?? DEFAULT_MAP)
-      : DEFAULT_MAP;
-    return { ...loaded, nodes: layoutLoops(loaded.nodes) };
-  } catch {
-    return DEFAULT_MAP;
-  }
-}
 
 function snapToGrid(value: number) {
   return Math.round(value / MAP_GRID_SIZE) * MAP_GRID_SIZE;
@@ -174,65 +130,6 @@ function findCycleNodes(nodes: MapNode[]): Set<string> {
   return cycleNodes;
 }
 
-function getCycleGroups(nodes: MapNode[]): string[][] {
-  const cycleIds = findCycleNodes(nodes);
-  const groups: string[][] = [];
-  const remaining = new Set(cycleIds);
-  while (remaining.size) {
-    const group: string[] = [];
-    const queue = [remaining.values().next().value as string];
-    remaining.delete(queue[0]);
-    while (queue.length) {
-      const id = queue.shift();
-      if (!id) continue;
-      group.push(id);
-      nodes
-        .filter((node) => node.id === id || node.children.includes(id))
-        .forEach((node) => {
-          if (remaining.has(node.id)) {
-            remaining.delete(node.id);
-            queue.push(node.id);
-          }
-        });
-    }
-    groups.push(group);
-  }
-  return groups;
-}
-
-function layoutLoops(nodes: MapNode[]): MapNode[] {
-  const groups = getCycleGroups(nodes);
-  if (!groups.length) return nodes;
-  const positions = new Map(
-    nodes.map((node) => [node.id, { x: node.x, y: node.y }]),
-  );
-  groups.forEach((group) => {
-    const centerX =
-      group.reduce((sum, id) => sum + (positions.get(id)?.x ?? 400), 0) /
-      group.length;
-    const centerY =
-      group.reduce((sum, id) => sum + (positions.get(id)?.y ?? 300), 0) /
-      group.length;
-    const nodeWidth = 220;
-    const nodeHeight = 132;
-    const gap = 64;
-    const radius = Math.max(
-      nodeHeight / 2 + gap,
-      nodeWidth / (2 * Math.sin(Math.PI / group.length)) + gap,
-    );
-    group.forEach((id, index) => {
-      const angle = (index / group.length) * Math.PI * 2 - Math.PI / 2;
-      positions.set(id, snapPointToGrid({
-        x: centerX + Math.cos(angle) * radius,
-        y: centerY + Math.sin(angle) * radius,
-      }));
-    });
-  });
-  return nodes.map((node) => ({
-    ...node,
-    ...(positions.get(node.id) ?? snapPointToGrid(node)),
-  }));
-}
 
 function canAddChild(node: MapNode): boolean {
   const childLimit = node.type === "JUNCTION" ? 2 : 1;
@@ -273,17 +170,31 @@ function getEndpointSide(
   return endpoint === "source" ? sourceSide : oppositeDirection(sourceSide);
 }
 
-type ConnectedEdge = { source: MapNode; target: MapNode; endpoint: "source" | "target" };
+type ConnectedEdge = {
+  source: MapNode;
+  target: MapNode;
+  endpoint: "source" | "target";
+};
 
-function getSideConnections(nodes: MapNode[], node: MapNode, side: RoadDirection) {
+function getSideConnections(
+  nodes: MapNode[],
+  node: MapNode,
+  side: RoadDirection,
+) {
   const connections: ConnectedEdge[] = [];
   nodes.forEach((source) => {
     source.children.forEach((childId) => {
       const target = nodes.find((candidate) => candidate.id === childId);
       if (!target) return;
-      if (source.id === node.id && getEndpointSide(source, target, "source") === side)
+      if (
+        source.id === node.id &&
+        getEndpointSide(source, target, "source") === side
+      )
         connections.push({ source, target, endpoint: "source" });
-      if (target.id === node.id && getEndpointSide(source, target, "target") === side)
+      if (
+        target.id === node.id &&
+        getEndpointSide(source, target, "target") === side
+      )
         connections.push({ source, target, endpoint: "target" });
     });
   });
@@ -364,10 +275,7 @@ function getNodeConnectionPoints(
     const targetX = target.x + routing.targetPortOffset;
     const sourceY = source.y + direction * NODE_HALF_HEIGHT;
     const targetY = target.y - direction * NODE_HALF_HEIGHT;
-    if (
-      isVerticallyAligned &&
-      Math.abs(sourceX - targetX) <= ALIGNMENT_EPSILON
-    )
+    if (isVerticallyAligned && Math.abs(sourceX - targetX) <= ALIGNMENT_EPSILON)
       return normalizeRoutePoints([
         { x: sourceX, y: sourceY },
         { x: targetX, y: targetY },
@@ -390,10 +298,7 @@ function getNodeConnectionPoints(
   const targetX = target.x - direction * NODE_HALF_WIDTH;
   const sourceY = source.y + routing.sourcePortOffset;
   const targetY = target.y + routing.targetPortOffset;
-  if (
-    isHorizontallyAligned &&
-    Math.abs(sourceY - targetY) <= ALIGNMENT_EPSILON
-  )
+  if (isHorizontallyAligned && Math.abs(sourceY - targetY) <= ALIGNMENT_EPSILON)
     return normalizeRoutePoints([
       { x: sourceX, y: sourceY },
       { x: targetX, y: targetY },
@@ -462,17 +367,19 @@ function getMapRoadEdges(
         getEdgeRouting(nodes, source, target),
       );
       if (points.length < 2) return [];
-      return [{
-        endpointCaps: getEndpointCaps(source, target),
-        id: `${source.id}-${target.id}`,
-        isSelected:
-          selectedEdge?.sourceId === source.id &&
-          selectedEdge.targetId === target.id,
-        points,
-        roadPath: getRoadPath(points),
-        sourceId: source.id,
-        targetId: target.id,
-      }];
+      return [
+        {
+          endpointCaps: getEndpointCaps(source, target),
+          id: `${source.id}-${target.id}`,
+          isSelected:
+            selectedEdge?.sourceId === source.id &&
+            selectedEdge.targetId === target.id,
+          points,
+          roadPath: getRoadPath(points),
+          sourceId: source.id,
+          targetId: target.id,
+        },
+      ];
     }),
   );
 }
@@ -488,7 +395,7 @@ function getNodePlacementNearParent(parent: MapNode, siblingCount: number) {
   };
 }
 
-function getBackendId(nodeId: string): number | null {  
+function getBackendId(nodeId: string): number | null {
   const id = Number(nodeId);
   return Number.isSafeInteger(id) && id >= 0 && String(id) === nodeId
     ? id
@@ -501,7 +408,6 @@ function unwrapCreatedNode(response: CreateMapNodeResponse): BackendMapNode {
 
 function mapFromBackendMap(
   backendMap: BackendMap,
-  previousNodes: MapNode[] = [],
 ): TreasureMap {
   const nodeIds = new Set(backendMap.nodes.map((node) => node.id));
   const childrenByParent = new Map<number, Set<number>>(
@@ -529,16 +435,14 @@ function mapFromBackendMap(
       cycleNodeIds.add(edge.target);
     }
   });
-  const positions = new Map(
-    previousNodes.map((node) => [node.id, snapPointToGrid(node)]),
-  );
 
-  const nodes = backendMap.nodes.map((node, index): MapNode => {
+  const nodes = backendMap.nodes.map((node): MapNode => {
     const id = String(node.id);
     return {
       id,
       type: node.effects === "JUNCTION" ? "JUNCTION" : "NODE",
-      ...(positions.get(id) ?? nextPosition(index)),
+      x: node?.position?.x,
+      y: node?.position?.y,
       question: node.data,
       answer: node.answer ?? undefined,
       children: [...(childrenByParent.get(node.id) ?? [])].map(String),
@@ -560,6 +464,7 @@ function mapFromBackendMap(
         isHead: node.is_head,
         isCheckpoint: node.is_checkpoint,
         createdAt: node.created_at,
+        position: { x: node.x, y: node.y }
       },
     };
   });
@@ -567,21 +472,20 @@ function mapFromBackendMap(
   return {
     id: String(backendMap.team_state?.id ?? "server-map"),
     name: backendMap.team_state?.name ?? "Team Map",
-    nodes: layoutLoops(nodes),
+    nodes: (nodes),
   };
 }
 
 function mapFromBackendMaps(
   backendMaps: BackendMap,
-  previousNodes: MapNode[] = [],
 ): TreasureMap {
   return backendMaps.nodes.length
-    ? mapFromBackendMap(backendMaps, previousNodes)
+    ? mapFromBackendMap(backendMaps)
     : DEFAULT_MAP;
 }
 
 export default function MapMakerPage() {
-  const [map, setMap] = useState<TreasureMap>(loadMap);
+  const [map, setMap] = useState<TreasureMap>(DEFAULT_MAP);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [connectionSourceId, setConnectionSourceId] = useState<string | null>(
     null,
@@ -596,9 +500,7 @@ export default function MapMakerPage() {
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [selectedEdge, setSelectedEdge] = useState<EdgeSelection | null>(null);
-  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(
-    null,
-  );
+  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const queryClient = useQueryClient();
   const {
     data: backendMaps,
@@ -663,17 +565,26 @@ export default function MapMakerPage() {
     ...map.nodes.filter((node) => node.isCycle).map((node) => node.id),
   ]);
   const roadEdges = getMapRoadEdges(map.nodes, selectedEdge);
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(map));
-  }, [map]);
+
   useEffect(() => {
     if (!backendMaps) return;
-    const syncMap = window.setTimeout(() => {      
-      setMap((current) => mapFromBackendMaps(backendMaps, current.nodes));
+
+    const syncMap = window.setTimeout(() => {
+      setMap((current) => {
+        const syncedMap = mapFromBackendMaps(
+          backendMaps,
+        );
+        return {
+          ...syncedMap,
+          name: current.name || syncedMap.name,
+        };
+      });
+
       setSelectedNodeId(null);
       setSelectedEdge(null);
       setConnectionSourceId(null);
     }, 0);
+
     return () => window.clearTimeout(syncMap);
   }, [backendMaps]);
   useEffect(() => {
@@ -914,7 +825,8 @@ export default function MapMakerPage() {
       return;
     } else {
       const parentNode = parentNodeIdForNewChild
-        ? map.nodes.find((node) => node.id === parentNodeIdForNewChild) ?? null
+        ? (map.nodes.find((node) => node.id === parentNodeIdForNewChild) ??
+          null)
         : null;
       if (parentNode && !canAddChild(parentNode)) {
         toast("This node cannot accept another child");
@@ -922,67 +834,32 @@ export default function MapMakerPage() {
         setDialogOpen(false);
         return;
       }
+
       const parentBackendId = parentNode ? getBackendId(parentNode.id) : null;
+
       if (parentNode && parentBackendId === null) {
         toast("This local-only parent cannot be used for a server node");
         return;
       }
+
       const basePosition = parentNode
         ? getNodePlacementNearParent(parentNode, parentNode.children.length)
         : nextPosition(map.nodes.length);
+      
       const question = draft.question.trim();
       const answer = draft.answer.trim();
+
       try {
-        const created = unwrapCreatedNode(
+        unwrapCreatedNode(
           await createNodeMutation.mutateAsync({
             data: draft.type === "JUNCTION" ? "JUNCTION" : question,
             clue: draft.type === "JUNCTION" ? "" : question,
             answer: draft.type === "JUNCTION" ? "" : answer,
             effects: draft.type === "JUNCTION" ? "JUNCTION" : "UNLOCKED",
-            parent: parentBackendId
+            parent: parentBackendId,
+            position: basePosition,
           }),
         );
-        const node: MapNode = {
-          id: String(created.id),
-          type: created.effects === "JUNCTION" ? "JUNCTION" : "NODE",
-          ...basePosition,
-          children: [],
-          question: created.data,
-          answer: created.answer ?? undefined,
-          metadata: {
-            clue: created.clue,
-            effects: created.effects,
-            score: created.score,
-            bonus: created.bonus,
-            life: created.life,
-            attack: created.attack,
-            isNearest: created.is_nearest,
-            parentId: created.parent_id,
-            altParentId: created.alt_parent_id,
-            altChildId: created.alt_child_id,
-            level: created.level,
-            status: created.status,
-            isCurrent: created.is_current,
-            isHead: created.is_head,
-            isCheckpoint: created.is_checkpoint,
-            createdAt: created.created_at,
-          },
-        };
-        setMap((current) => {
-          const nextNodes = [...current.nodes, node];
-          const nodesWithParent = parentNode
-            ? nextNodes.map((existingNode) =>
-                existingNode.id === parentNode.id
-                  ? {
-                      ...existingNode,
-                      children: [...existingNode.children, node.id],
-                    }
-                  : existingNode,
-              )
-            : nextNodes;
-          return { ...current, nodes: layoutLoops(nodesWithParent) };
-        });
-        setSelectedNodeId(node.id);
         setParentNodeIdForNewChild(null);
         setDialogOpen(false);
         void queryClient.invalidateQueries({
@@ -1017,9 +894,7 @@ export default function MapMakerPage() {
         ? null
         : current,
     );
-    setConnectionSourceId((current) =>
-      current === nodeId ? null : current,
-    );
+    setConnectionSourceId((current) => (current === nodeId ? null : current));
     setParentNodeIdForNewChild((current) =>
       current === nodeId ? null : current,
     );
@@ -1091,9 +966,7 @@ export default function MapMakerPage() {
       return;
     }
     if (source.id === target.id) {
-      toast(
-        "A node cannot connect to itself"
-      );
+      toast("A node cannot connect to itself");
       setConnectionSourceId(null);
       return;
     }
@@ -1116,12 +989,10 @@ export default function MapMakerPage() {
       });
       setMap((current) => ({
         ...current,
-        nodes: layoutLoops(
-          current.nodes.map((node) =>
+        nodes: current.nodes.map((node) =>
             node.id === connectionSourceId
               ? { ...node, children: [...node.children, targetId] }
               : node,
-          ),
         ),
       }));
       void queryClient.invalidateQueries({
@@ -1157,8 +1028,14 @@ export default function MapMakerPage() {
     const menuHeight = 48;
     setContextMenu({
       nodeId,
-      x: Math.min(Math.max(8, event.clientX - bounds.left), bounds.width - menuWidth - 8),
-      y: Math.min(Math.max(8, event.clientY - bounds.top), bounds.height - menuHeight - 8),
+      x: Math.min(
+        Math.max(8, event.clientX - bounds.left),
+        bounds.width - menuWidth - 8,
+      ),
+      y: Math.min(
+        Math.max(8, event.clientY - bounds.top),
+        bounds.height - menuHeight - 8,
+      ),
     });
     setSelectedNodeId(nodeId);
     setSelectedEdge(null);
@@ -1241,8 +1118,12 @@ export default function MapMakerPage() {
     const padding = 80;
     const minX = Math.min(...map.nodes.map((node) => node.x - NODE_HALF_WIDTH));
     const maxX = Math.max(...map.nodes.map((node) => node.x + NODE_HALF_WIDTH));
-    const minY = Math.min(...map.nodes.map((node) => node.y - NODE_HALF_HEIGHT));
-    const maxY = Math.max(...map.nodes.map((node) => node.y + NODE_HALF_HEIGHT));
+    const minY = Math.min(
+      ...map.nodes.map((node) => node.y - NODE_HALF_HEIGHT),
+    );
+    const maxY = Math.max(
+      ...map.nodes.map((node) => node.y + NODE_HALF_HEIGHT),
+    );
     const graphWidth = Math.max(maxX - minX, 1);
     const graphHeight = Math.max(maxY - minY, 1);
     const viewportWidth = viewport.clientWidth;
@@ -1298,7 +1179,6 @@ export default function MapMakerPage() {
           className="flex min-h-0 min-w-0 flex-1 flex-col border-y-4 bg-slate-900 shadow-[6px_6px_0_rgba(8,145,178,0.25)]"
           aria-label="Map canvas"
         >
-          
           <div
             className="relative flex h-full flex-col min-h-0 w-full flex-1 overflow-hidden border-2 border-dashed border-cyan-700 bg-slate-950"
             onPointerDown={handleCanvasPointerDown}
@@ -1328,38 +1208,38 @@ export default function MapMakerPage() {
               >
                 {roadEdges.map((edge) => (
                   <path
-                          d={edge.roadPath}
-                          fill="none"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            if (edgePointerRef.current?.moved) {
-                              edgePointerRef.current = null;
-                              return;
-                            }
-                            edgePointerRef.current = null;
-                            setContextMenu(null);
-                            setSelectedEdge({
-                              sourceId: edge.sourceId,
-                              targetId: edge.targetId,
-                            });
-                            setSelectedNodeId(null);
-                          }}
-                          onPointerDown={(event) => {
-                            event.stopPropagation();
-                            setContextMenu(null);
-                            edgePointerRef.current = {
-                              id: event.pointerId,
-                              moved: false,
-                              sourceId: edge.sourceId,
-                              targetId: edge.targetId,
-                            };
-                            beginCanvasInteraction(event);
-                          }}
-                          stroke="transparent"
-                          strokeWidth={PIXEL_ROAD_HIT_WIDTH}
-                          style={{ pointerEvents: "stroke", cursor: "pointer" }}
-                          key={edge.id}
-                        />
+                    d={edge.roadPath}
+                    fill="none"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      if (edgePointerRef.current?.moved) {
+                        edgePointerRef.current = null;
+                        return;
+                      }
+                      edgePointerRef.current = null;
+                      setContextMenu(null);
+                      setSelectedEdge({
+                        sourceId: edge.sourceId,
+                        targetId: edge.targetId,
+                      });
+                      setSelectedNodeId(null);
+                    }}
+                    onPointerDown={(event) => {
+                      event.stopPropagation();
+                      setContextMenu(null);
+                      edgePointerRef.current = {
+                        id: event.pointerId,
+                        moved: false,
+                        sourceId: edge.sourceId,
+                        targetId: edge.targetId,
+                      };
+                      beginCanvasInteraction(event);
+                    }}
+                    stroke="transparent"
+                    strokeWidth={PIXEL_ROAD_HIT_WIDTH}
+                    style={{ pointerEvents: "stroke", cursor: "pointer" }}
+                    key={edge.id}
+                  />
                 ))}
               </svg>
               {map.nodes.map((node) => {
@@ -1375,13 +1255,19 @@ export default function MapMakerPage() {
                   >
                     <article
                       className={`relative w-55 border-4 ${node.type === "JUNCTION" ? "border-fuchsia-300 bg-fuchsia-950 text-fuchsia-100" : "border-emerald-300 bg-emerald-950 text-emerald-100"} ${isSelected ? "z-10 ring-4 ring-amber-300" : ""} ${isSource ? "ring-4 ring-cyan-300" : ""}`}
-                      onContextMenu={(event) => openNodeContextMenu(event, node.id)}
+                      onContextMenu={(event) =>
+                        openNodeContextMenu(event, node.id)
+                      }
                       onDoubleClick={(event) => {
                         event.stopPropagation();
                         openEditDialog(node);
                       }}
                       onMouseEnter={() => setHoveredNodeId(node.id)}
-                      onMouseLeave={() => setHoveredNodeId((current) => (current === node.id ? null : current))}
+                      onMouseLeave={() =>
+                        setHoveredNodeId((current) =>
+                          current === node.id ? null : current,
+                        )
+                      }
                       onPointerDown={(event) => {
                         if (event.button !== 0) return;
                         event.preventDefault();
@@ -1406,10 +1292,16 @@ export default function MapMakerPage() {
                       onPointerMove={(event) => {
                         event.stopPropagation();
                         const drag = dragRef.current;
-                        if (!drag || drag.kind !== "node" || drag.id !== node.id) return;
+                        if (
+                          !drag ||
+                          drag.kind !== "node" ||
+                          drag.id !== node.id
+                        )
+                          return;
                         const deltaX = event.clientX - drag.startX;
                         const deltaY = event.clientY - drag.startY;
-                        if (Math.abs(deltaX) > 4 || Math.abs(deltaY) > 4) drag.moved = true;
+                        if (Math.abs(deltaX) > 4 || Math.abs(deltaY) > 4)
+                          drag.moved = true;
                         if (drag.moved) {
                           updateNode(drag.id, {
                             x: drag.originX + deltaX / zoom,
@@ -1417,23 +1309,54 @@ export default function MapMakerPage() {
                           });
                         }
                       }}
-                      onPointerUp={(event) => {
+                      onPointerUp={async(event) => {
                         event.stopPropagation();
                         const drag = dragRef.current;
-                        if (drag && drag.kind === "node" && drag.id === node.id) {
+                        if (
+                          drag &&
+                          drag.kind === "node" &&
+                          drag.id === node.id
+                        ) {
                           if (drag.moved) {
                             setSelectedNodeId(node.id);
                           }
+                          if (drag.originX !==  node.x || drag.originY !== node.y){
+                              try {
+                                await updateNodeMutation.mutateAsync({
+                                id: Number(node.id),
+                                data: {
+                                  position :{
+                                      x: node.x,
+                                      y: node.y
+                                  }
+                                },
+                              });
+                                
+                              } catch (error) {
+                                console.error('An error occured', error)
+                                toast("Could not update the node position. Your graph was not changed.");
+                              }
+                          }
                           dragRef.current = null;
-                          if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-                            event.currentTarget.releasePointerCapture(event.pointerId);
+                          if (
+                            event.currentTarget.hasPointerCapture(
+                              event.pointerId,
+                            )
+                          ) {
+                            event.currentTarget.releasePointerCapture(
+                              event.pointerId,
+                            );
                           }
                         }
                       }}
                       onPointerCancel={(event) => {
                         event.stopPropagation();
-                        if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-                          event.currentTarget.releasePointerCapture(event.pointerId);
+                        if (
+                          event.currentTarget.hasPointerCapture(event.pointerId)
+                        ) {
+                          event.currentTarget.releasePointerCapture(
+                            event.pointerId,
+                          );
                         }
                         dragRef.current = null;
                       }}
@@ -1522,8 +1445,8 @@ export default function MapMakerPage() {
                 </span>
                 <span className="text-[9px]">ADD A NODE TO BEGIN</span>
               </button>
-              )}
-              <div className="select-none absolute right-3 top-3 flex items-center gap-1.5 border-2 border-cyan-600 bg-slate-950/90 p-1.5">
+            )}
+            <div className="select-none absolute right-3 top-3 flex items-center gap-1.5 border-2 border-cyan-600 bg-slate-950/90 p-1.5">
               <button
                 aria-label="Zoom out"
                 className="flex size-7 items-center justify-center border border-cyan-400 text-cyan-200"
@@ -1551,34 +1474,41 @@ export default function MapMakerPage() {
                 RESET VIEW
               </button>
             </div>
-          <div className="select-none mt-auto mb-3 px-3 flex flex-wrap items-center justify-between gap-2 text-[9px] text-slate-400">
-                        <span className="text-[9px] text-cyan-200">
-              {map.nodes.length} NODES /{" "}
-              {map.nodes.reduce(
-                (count, node) => count + node.children.length,
-                0,
-              )}{" "}
-              LINKS
-              {isMapLoading && " / SYNCING"}
-            </span>
-            <div className="flex items-center gap-3">
-              {selectedEdge && (
+            <div className="select-none mt-auto mb-3 px-3 flex flex-wrap items-center justify-between gap-2 text-[9px] text-slate-400">
+              <span className="text-[9px] text-cyan-200">
+                {map.nodes.length} NODES /{" "}
+                {map.nodes.reduce(
+                  (count, node) => count + node.children.length,
+                  0,
+                )}{" "}
+                LINKS
+                {isMapLoading && " / SYNCING"}
+              </span>
+              <div className="flex items-center gap-3">
+                {selectedEdge && (
+                  <Button
+                    disabled={removeRelationMutation.isPending}
+                    onClick={() => void deleteConnection()}
+                    size="compact"
+                    type="button"
+                    variant="destructive"
+                  >
+                    <Trash2 className="size-3" />
+                    {removeRelationMutation.isPending
+                      ? "REMOVING..."
+                      : "REMOVE LINK"}
+                  </Button>
+                )}
                 <Button
-                  disabled={removeRelationMutation.isPending}
-                  onClick={() => void deleteConnection()}
+                  onClick={resetMap}
                   size="compact"
                   type="button"
-                  variant="destructive"
+                  variant="outline"
                 >
-                  <Trash2 className="size-3" />
-                  {removeRelationMutation.isPending ? "REMOVING..." : "REMOVE LINK"}
+                  <RotateCcw className="size-3" /> CLEAR
                 </Button>
-              )}
-              <Button onClick={resetMap} size="compact" type="button" variant="outline">
-                <RotateCcw className="size-3" /> CLEAR
-              </Button>
+              </div>
             </div>
-          </div>
           </div>
         </section>
       </div>
@@ -1677,7 +1607,9 @@ export default function MapMakerPage() {
                   CANCEL
                 </Button>
                 <Button
-                  disabled={createNodeMutation.isPending || updateNodeMutation.isPending}
+                  disabled={
+                    createNodeMutation.isPending || updateNodeMutation.isPending
+                  }
                   onClick={() => void saveDraft()}
                   size="compact"
                   type="button"
@@ -1686,9 +1618,9 @@ export default function MapMakerPage() {
                     ? "CREATING..."
                     : updateNodeMutation.isPending
                       ? "SAVING..."
-                    : editingNodeId
-                      ? "SAVE"
-                      : "CREATE"}
+                      : editingNodeId
+                        ? "SAVE"
+                        : "CREATE"}
                 </Button>
               </div>
             </div>
