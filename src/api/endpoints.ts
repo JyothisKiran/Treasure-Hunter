@@ -15,4 +15,5 @@ export const ENDPOINTS = {
   NODE: (id: number) => `/nodes/${id}/`,
   TEAM_STREAM: "/teams/stream/",
   TEAM_STREAM_TICKET: "/teams/stream-ticket/",
+  MAP_SKELETON: "/maps/skeleton/",
 } as const;

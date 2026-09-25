@@ -33,4 +33,8 @@ export const mapService = {
   deleteNode(id: number) {
     return apiClient.delete<void>(ENDPOINTS.NODE(id));
   },
+
+  getMapSkeleton() {
+    return apiClient.get<BackendMap>(ENDPOINTS.MAP_SKELETON);
+  }
 };

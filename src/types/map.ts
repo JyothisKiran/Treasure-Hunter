@@ -125,3 +125,29 @@ export interface RemoveNodeRelationRequest {
   node1_id: number;
   node2_id: number;
 }
+
+export interface MapSkeletonNode{
+  id : number,
+  effects: string,
+  position: { x:number, y:number }
+}
+
+export interface MapSkeletonEdge{
+  id: string,
+  source: number,
+  target: number,
+  type: string;
+  is_cycle: boolean
+}
+
+
+export interface BackendMapSkeleton {
+  nodes: MapSkeletonNode[];
+  edges: MapSkeletonEdge[];
+  total_nodes: number;
+  total_edges: number;
+}
+
+export interface VisitedNodesResponse {
+  visited_nodes: number[];
+}
