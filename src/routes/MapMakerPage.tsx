@@ -491,6 +491,7 @@ export default function MapMakerPage() {
     null,
   );
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [deleteConfirmationOpen, setDeleteConfirmationOpen] = useState(false);
   const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
   const [parentNodeIdForNewChild, setParentNodeIdForNewChild] = useState<
     string | null
@@ -539,6 +540,11 @@ export default function MapMakerPage() {
   const deleteNodeMutation = useMutation<void, Error, number>({
     mutationFn: async (id) => {
       await mapService.deleteNode(id);
+    },
+  });
+  const clearMapMutation = useMutation<void, Error, void>({
+    mutationFn: async () => {
+      await mapService.clearMap();
     },
   });
   // const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1100,12 +1106,26 @@ export default function MapMakerPage() {
   //   }
   // };
 
-  const resetMap = () => {
-    setMap(DEFAULT_MAP);
-    setSelectedNodeId(null);
-    setSelectedEdge(null);
-    setConnectionSourceId(null);
-    toast("Map cleared");
+  const handleDeleteModalConfirmation = async() => {
+    try {
+      await clearMapMutation.mutateAsync();
+      void queryClient.invalidateQueries({
+          queryKey: MAP_MAKER_MAPS_QUERY_KEY,
+        });
+        setMap(DEFAULT_MAP);
+      setSelectedNodeId(null);
+      setSelectedEdge(null);
+      setConnectionSourceId(null);
+      toast("Map cleared");
+    } catch (error) {
+      toast("Error Occured! Could not clear the map.");
+      console.error("Error clearing the map:", error);
+    }
+    
+  }
+
+  const resetMap = async() => {
+    setDeleteConfirmationOpen(true);
   };
 
   const resetView = () => {
@@ -1627,6 +1647,61 @@ export default function MapMakerPage() {
           </div>
         </div>
       )}
+
+      {deleteConfirmationOpen && (
+        <div
+          aria-modal="true"
+          className="fixed inset-0 z-60 flex items-center justify-center overflow-y-auto bg-slate-950/85 p-4"
+          role="dialog"
+        >
+          <div className="w-full max-w-lg border-4 border-amber-400 bg-slate-900 p-4 shadow-[8px_8px_0_rgba(251,191,36,0.25)] sm:p-6">
+            <div className="mb-5 flex items-center justify-between gap-3">
+              <h2 className="retro m-0 text-base! text-amber-100 pl-4">
+                Are you Sure?
+              </h2>
+              <button
+                aria-label="Close dialog"
+                className="text-amber-300 cursor-pointer"
+                onClick={() => {
+                  setDeleteConfirmationOpen(false);
+                }}
+                type="button"
+              >
+                <X />
+              </button>
+            </div>
+            <div className="flex flex-col gap-4">
+              <div className="text-[10px] text-center mb-3">
+                This action cannot be undone.
+              </div>
+              <div className="flex justify-around gap-3">
+                <Button
+                  onClick={() => {
+                    setDeleteConfirmationOpen(false);
+                  }}
+                  size="compact"
+                  type="button"
+                  variant="outline"
+                >
+                  CANCEL
+                </Button>
+                <Button
+                  disabled={
+                    clearMapMutation.isPending
+                  }
+                  onClick={() => handleDeleteModalConfirmation()}
+                  size="compact"
+                  type="button"
+                  variant="destructive"
+                >
+                  {clearMapMutation.isPending
+                    ? "DELETING..."
+                        : "DELETE"}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>)}
     </main>
   );
 }

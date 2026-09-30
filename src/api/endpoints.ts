@@ -16,4 +16,5 @@ export const ENDPOINTS = {
   TEAM_STREAM: "/teams/stream/",
   TEAM_STREAM_TICKET: "/teams/stream-ticket/",
   MAP_SKELETON: "/maps/skeleton/",
+  CLEAR_MAP: "/maps/clear/",
 } as const;

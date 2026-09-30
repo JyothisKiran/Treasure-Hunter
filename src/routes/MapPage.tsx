@@ -26,14 +26,40 @@ type RoadPoint = {
   y: number;
 };
 
+type RoadDirection = "up" | "right" | "down" | "left";
+
+type EdgeRouting = {
+  sourcePortOffset: number;
+  targetPortOffset: number;
+  laneOffset: number;
+};
+
+type ConnectedEdge = {
+  source: MapSkeletonNode;
+  target: MapSkeletonNode;
+  endpoint: "source" | "target";
+};
+
+type MapEdge = {
+  id: number | string;
+  source: number | string;
+  target: number | string;
+};
+
 /* -------------------------------------------------------------------------- */
 /*                              MAP CONSTANTS                                 */
 /* -------------------------------------------------------------------------- */
 
-const NODE_WIDTH = 180;
-const NODE_HEIGHT = 100;
+const NODE_WIDTH = 220;
+const NODE_HEIGHT = 132;
 
 const JUNCTION_SIZE = 92;
+const ROAD_NODE_OVERLAP = -16;
+const BG_TILE_SIZE = 256; // px of the tile at zoom = 1
+
+
+const ALIGNMENT_EPSILON = 4;
+const ROUTING_LANE_GAP = 28;
 
 const MIN_ZOOM = 0.35;
 const MAX_ZOOM = 2.5;
@@ -42,10 +68,10 @@ const ZOOM_STEP = 0.1;
 
 const FIT_PADDING = 100;
 
-const CURRENT_NODE_REVEAL_DISTANCE = 580;
+const CURRENT_NODE_REVEAL_DISTANCE = 576;
 const FOG_NODE_REVEAL_RADIUS = 180;
 const FOG_PATH_REVEAL_WIDTH = 150;
-const FOG_BLUR_RADIUS = 14;
+const FOG_BLUR_RADIUS = 10;
 
 /* -------------------------------------------------------------------------- */
 /*                              HELPER FUNCTIONS                              */
@@ -103,18 +129,25 @@ function getPointAlongRoute(
     },
   ];
 
-  let remaining = distance;
+  let remaining = Math.max(distance, 0);
 
-  for (let index = 0; index < points.length - 1; index += 1) {
+  for (
+    let index = 0;
+    index < points.length - 1;
+    index += 1
+  ) {
     const start = points[index];
     const end = points[index + 1];
 
     const segmentLength = getDistance(start, end);
 
-    if (segmentLength === 0) {
+    if (segmentLength <= 0) {
       continue;
     }
 
+    /*
+     * The entire segment fits inside the reveal distance.
+     */
     if (remaining >= segmentLength) {
       result.push({
         x: end.x,
@@ -125,16 +158,27 @@ function getPointAlongRoute(
       continue;
     }
 
+    /*
+     * Reveal only part of this segment.
+     */
     const ratio = remaining / segmentLength;
 
     result.push({
-      x: start.x + (end.x - start.x) * ratio,
-      y: start.y + (end.y - start.y) * ratio,
+      x:
+        start.x +
+        (end.x - start.x) * ratio,
+      y:
+        start.y +
+        (end.y - start.y) * ratio,
     });
 
-    break;
+    return result;
   }
 
+  /*
+   * The requested reveal distance is longer than the
+   * entire route, so return the complete route.
+   */
   return result;
 }
 
@@ -147,6 +191,234 @@ function worldToScreen(
       y: camera.y + point.y * camera.zoom,
     };
   }
+
+function oppositeDirection(
+  direction: RoadDirection,
+): RoadDirection {
+  if (direction === "up") {
+    return "down";
+  }
+
+  if (direction === "down") {
+    return "up";
+  }
+
+  if (direction === "left") {
+    return "right";
+  }
+
+  return "left";
+}
+
+function getRouteOrientation(
+  source: MapSkeletonNode,
+  target: MapSkeletonNode,
+) {
+  const deltaX = target.position.x - source.position.x;
+  const deltaY = target.position.y - source.position.y;
+
+  const isVerticallyAligned =
+    Math.abs(deltaX) <= ALIGNMENT_EPSILON;
+
+  const isHorizontallyAligned =
+    Math.abs(deltaY) <= ALIGNMENT_EPSILON;
+
+  return isVerticallyAligned ||
+    (
+      !isHorizontallyAligned &&
+      Math.abs(deltaY) >= Math.abs(deltaX)
+    )
+    ? "vertical"
+    : "horizontal";
+}
+
+function getEndpointSide(
+  source: MapSkeletonNode,
+  target: MapSkeletonNode,
+  endpoint: "source" | "target",
+): RoadDirection {
+  const orientation = getRouteOrientation(source, target);
+
+  if (orientation === "vertical") {
+    const sourceSide =
+      target.position.y >= source.position.y
+        ? "down"
+        : "up";
+
+    return endpoint === "source"
+      ? sourceSide
+      : oppositeDirection(sourceSide);
+  }
+
+  const sourceSide =
+    target.position.x >= source.position.x
+      ? "right"
+      : "left";
+
+  return endpoint === "source"
+    ? sourceSide
+    : oppositeDirection(sourceSide);
+}
+
+function getSideConnections(
+  nodes: MapSkeletonNode[],
+  edges: MapEdge[],
+  node: MapSkeletonNode,
+  side: RoadDirection,
+): ConnectedEdge[] {
+  const connections: ConnectedEdge[] = [];
+
+  edges.forEach((edge) => {
+    const source = nodes.find(
+      (candidate) =>
+        String(candidate.id) === String(edge.source),
+    );
+
+    const target = nodes.find(
+      (candidate) =>
+        String(candidate.id) === String(edge.target),
+    );
+
+    if (!source || !target) {
+      return;
+    }
+
+    if (
+      String(source.id) === String(node.id) &&
+      getEndpointSide(source, target, "source") === side
+    ) {
+      connections.push({
+        source,
+        target,
+        endpoint: "source",
+      });
+    }
+
+    if (
+      String(target.id) === String(node.id) &&
+      getEndpointSide(source, target, "target") === side
+    ) {
+      connections.push({
+        source,
+        target,
+        endpoint: "target",
+      });
+    }
+  });
+
+  return connections.sort((first, second) => {
+    const firstKey =
+      `${first.source.id}:${first.target.id}:${first.endpoint}`;
+
+    const secondKey =
+      `${second.source.id}:${second.target.id}:${second.endpoint}`;
+
+    return firstKey.localeCompare(secondKey);
+  });
+}
+
+function getPortOffset(
+  index: number,
+  count: number,
+  maxOffset: number,
+) {
+  if (count < 2) {
+    return 0;
+  }
+
+  return (
+    -maxOffset +
+    (index / (count - 1)) * maxOffset * 2
+  );
+}
+
+function getLaneOffset(
+  index: number,
+  count: number,
+) {
+  return (
+    (index - (count - 1) / 2) *
+    ROUTING_LANE_GAP
+  );
+}
+
+function getEdgeRouting(
+  nodes: MapSkeletonNode[],
+  edges: MapEdge[],
+  source: MapSkeletonNode,
+  target: MapSkeletonNode,
+): EdgeRouting {
+  const sourceConnections = getSideConnections(
+    nodes,
+    edges,
+    source,
+    getEndpointSide(source, target, "source"),
+  );
+
+  const targetConnections = getSideConnections(
+    nodes,
+    edges,
+    target,
+    getEndpointSide(source, target, "target"),
+  );
+
+  const isCurrentSource = (edge: ConnectedEdge) =>
+    String(edge.source.id) === String(source.id) &&
+    String(edge.target.id) === String(target.id) &&
+    edge.endpoint === "source";
+
+  const isCurrentTarget = (edge: ConnectedEdge) =>
+    String(edge.source.id) === String(source.id) &&
+    String(edge.target.id) === String(target.id) &&
+    edge.endpoint === "target";
+
+  const sourceIndex =
+    sourceConnections.findIndex(isCurrentSource);
+
+  const targetIndex =
+    targetConnections.findIndex(isCurrentTarget);
+
+  const sourceDimensions =
+    getNodeDimensions(source);
+
+  const targetDimensions =
+    getNodeDimensions(target);
+
+  const sourcePortOffset = getPortOffset(
+    sourceIndex,
+    sourceConnections.length,
+    Math.min(
+      sourceDimensions.width / 2 - 18,
+      sourceDimensions.height / 2 - 18,
+    ),
+  );
+
+  const targetPortOffset = getPortOffset(
+    targetIndex,
+    targetConnections.length,
+    Math.min(
+      targetDimensions.width / 2 - 18,
+      targetDimensions.height / 2 - 18,
+    ),
+  );
+
+  const laneOffset =
+    sourceConnections.length > 1
+      ? getLaneOffset(
+          sourceIndex,
+          sourceConnections.length,
+        )
+      : getLaneOffset(
+          targetIndex,
+          targetConnections.length,
+        );
+
+  return {
+    sourcePortOffset,
+    targetPortOffset,
+    laneOffset,
+  };
+}
 
 /* -------------------------------------------------------------------------- */
 /*                                COMPONENT                                   */
@@ -194,7 +466,6 @@ export default function Map() {
    */
 
   const { data: visitedNodesData } = useGetVisitedNodes();
-  console.log(visitedNodesData);
 
   const {
     data: mapSkeleton,
@@ -206,9 +477,14 @@ export default function Map() {
   const edges = useMemo(() => mapSkeleton?.edges || [], [mapSkeleton]);
 
   const visitedNodeIds = useMemo(
-    () => new Set(visitedNodesData?.visited_nodes ?? []),
-    [visitedNodesData],
-  );
+  () =>
+    new Set(
+      (visitedNodesData?.visited_nodes ?? []).map((id) =>
+        String(id),
+      ),
+    ),
+  [visitedNodesData],
+);
 
   const currentNodeId = useMemo(() => {
     const visitedNodes = visitedNodesData?.visited_nodes ?? [];
@@ -483,7 +759,6 @@ export default function Map() {
   /* ------------------------------------------------------------------------ */
 
   const handleNodeClick = (node: MapSkeletonNode) => {
-
     console.log("Selected node:", node);
   };
 
@@ -492,57 +767,229 @@ export default function Map() {
   /* ------------------------------------------------------------------------ */
 
 
-  function createOrthogonalRoute(
-    from: { x: number; y: number },
-    to: { x: number; y: number },
-  ) {
-    const midpointX = Math.round((from.x + to.x) / 2);
+function getNodeConnectionPoints(
+  source: MapSkeletonNode,
+  target: MapSkeletonNode,
+  routing: EdgeRouting,
+): RoadPoint[] {
+  const deltaX =
+    target.position.x - source.position.x;
+
+  const deltaY =
+    target.position.y - source.position.y;
+
+  const isVerticallyAligned =
+    Math.abs(deltaX) <= ALIGNMENT_EPSILON;
+
+  const isHorizontallyAligned =
+    Math.abs(deltaY) <= ALIGNMENT_EPSILON;
+
+  const isVerticalRoute =
+    getRouteOrientation(source, target) === "vertical";
+
+  const sourceDimensions =
+    getNodeDimensions(source);
+
+  const targetDimensions =
+    getNodeDimensions(target);
+
+  if (isVerticalRoute) {
+    const direction = deltaY >= 0 ? 1 : -1;
+
+    /*
+     * Start slightly INSIDE the source node and end slightly
+     * INSIDE the target node.
+     *
+     * The nodes are rendered above Pixi roads, so this overlap
+     * is hidden by the node itself and prevents visible gaps.
+     */
+    const sourceX =
+      source.position.x +
+      routing.sourcePortOffset;
+
+    const targetX =
+      target.position.x +
+      routing.targetPortOffset;
+
+    const sourceY =
+      source.position.y +
+      direction *
+        (sourceDimensions.height / 2 + ROAD_NODE_OVERLAP);
+
+    const targetY =
+      target.position.y -
+      direction *
+        (targetDimensions.height / 2 + ROAD_NODE_OVERLAP);
+
+    if (
+      isVerticallyAligned &&
+      Math.abs(sourceX - targetX) <=
+        ALIGNMENT_EPSILON
+    ) {
+      return [
+        {
+          x: sourceX,
+          y: sourceY,
+        },
+        {
+          x: targetX,
+          y: targetY,
+        },
+      ];
+    }
+
+    const midpoint =
+      (sourceY + targetY) / 2;
+
+    const maxLaneOffset = Math.max(
+      0,
+      Math.abs(targetY - sourceY) / 2 - 12,
+    );
+
+    const bendY =
+      midpoint +
+      Math.max(
+        -maxLaneOffset,
+        Math.min(
+          maxLaneOffset,
+          routing.laneOffset,
+        ),
+      );
 
     return [
       {
-        x: from.x,
-        y: from.y,
+        x: sourceX,
+        y: sourceY,
       },
       {
-        x: midpointX,
-        y: from.y,
+        x: sourceX,
+        y: bendY,
       },
       {
-        x: midpointX,
-        y: to.y,
+        x: targetX,
+        y: bendY,
       },
       {
-        x: to.x,
-        y: to.y,
+        x: targetX,
+        y: targetY,
       },
     ];
   }
 
+  const direction = deltaX >= 0 ? 1 : -1;
+
+  const sourceX =
+    source.position.x +
+    direction *
+      (sourceDimensions.width / 2 + ROAD_NODE_OVERLAP);
+
+  const targetX =
+    target.position.x -
+    direction *
+      (targetDimensions.width / 2 + ROAD_NODE_OVERLAP);
+
+  const sourceY =
+    source.position.y +
+    routing.sourcePortOffset;
+
+  const targetY =
+    target.position.y +
+    routing.targetPortOffset;
+
+  if (
+    isHorizontallyAligned &&
+    Math.abs(sourceY - targetY) <=
+      ALIGNMENT_EPSILON
+  ) {
+    return [
+      {
+        x: sourceX,
+        y: sourceY,
+      },
+      {
+        x: targetX,
+        y: targetY,
+      },
+    ];
+  }
+
+  const midpoint =
+    (sourceX + targetX) / 2;
+
+  const maxLaneOffset = Math.max(
+    0,
+    Math.abs(targetX - sourceX) / 2 - 12,
+  );
+
+  const bendX =
+    midpoint +
+    Math.max(
+      -maxLaneOffset,
+      Math.min(
+        maxLaneOffset,
+        routing.laneOffset,
+      ),
+    );
+
+  return [
+    {
+      x: sourceX,
+      y: sourceY,
+    },
+    {
+      x: bendX,
+      y: sourceY,
+    },
+    {
+      x: bendX,
+      y: targetY,
+    },
+    {
+      x: targetX,
+      y: targetY,
+    },
+  ];
+}
+
   const pixiEdges = useMemo(() => {
-    return edges.flatMap((edge) => {
-      const from = nodeMap.get(edge.source);
-      const to = nodeMap.get(edge.target);
+  return edges.flatMap((edge) => {
+    const source = nodeMap.get(edge.source);
+    const target = nodeMap.get(edge.target);
 
-      if (!from || !to) {
-        return [];
-      }
+    if (!source || !target) {
+      return [];
+    }
 
-      return [
-        {
-          id: String(edge.id),
+    const routing = getEdgeRouting(
+      nodes,
+      edges,
+      source,
+      target,
+    );
 
-          points: createOrthogonalRoute(from.position, to.position),
+    const points = getNodeConnectionPoints(
+      source,
+      target,
+      routing,
+    );
 
-          endpointCaps: {
-            start: true,
-            end: true,
-          },
+    if (points.length < 2) {
+      return [];
+    }
 
-          isSelected: false,
+    return [
+      {
+        id: String(edge.id),
+        points,
+        endpointCaps: {
+          start: true,
+          end: true,
         },
-      ];
-    });
-  }, [edges, nodeMap]);
+        isSelected: false,
+      },
+    ];
+  });
+}, [edges, nodes, nodeMap]);
 
   const visiblePixiEdges = useMemo(() => {
     if (!currentNodeId) {
@@ -559,9 +1006,8 @@ export default function Map() {
       const sourceId = String(backendEdge.source);
       const targetId = String(backendEdge.target);
 
-      const sourceVisited = visitedNodeIds.has(Number(sourceId));
-
-      const targetVisited = visitedNodeIds.has(Number(targetId));
+      const sourceVisited = visitedNodeIds.has(sourceId);
+      const targetVisited = visitedNodeIds.has(targetId);
 
       const sourceIsCurrent = sourceId === currentNodeId;
 
@@ -740,23 +1186,17 @@ export default function Map() {
         className={[
           "relative min-h-0 flex-1 overflow-hidden",
           "touch-none",
-          "bg-[#0b0f14]",
+          "bg-[#060E08]",
           "cursor-grab",
           isPanning ? "cursor-grabbing" : "",
         ].join(" ")}
         style={{
-          backgroundImage: `
-            linear-gradient(
-              rgba(255,255,255,0.025) 1px,
-              transparent 1px
-            ),
-            linear-gradient(
-              90deg,
-              rgba(255,255,255,0.025) 1px,
-              transparent 1px
-            )
-          `,
-          backgroundSize: "40px 40px",
+          backgroundColor: "#5ea040",
+          backgroundImage: "url(/grass-tile.png)",
+          backgroundRepeat: "repeat",
+          backgroundSize: `${BG_TILE_SIZE * camera.zoom}px ${BG_TILE_SIZE * camera.zoom}px`,
+          backgroundPosition: `${camera.x}px ${camera.y}px`,
+          imageRendering: "pixelated",
         }}
         onPointerDown={handleViewportPointerDown}
         onPointerMove={handleViewportPointerMove}
@@ -770,40 +1210,34 @@ export default function Map() {
 
         <svg
   aria-hidden="true"
-  className="pointer-events-none absolute inset-0 z-10 h-full w-full"
+  className="pointer-events-none absolute inset-0 z-0 h-full w-full"
 >
   <defs>
-    <filter
-      id="map-fog-blur"
-      x="-20%"
-      y="-20%"
-      width="140%"
-      height="140%"
-    >
-      <feGaussianBlur stdDeviation={FOG_BLUR_RADIUS} />
-    </filter>
+  <filter
+    id="map-fog-blur"
+    filterUnits="userSpaceOnUse"
+    x="-10%"
+    y="-10%"
+    width="120%"
+    height="120%"
+    colorInterpolationFilters="sRGB"
+  >
+    <feGaussianBlur stdDeviation={FOG_BLUR_RADIUS * camera.zoom} />
+  </filter>
 
-    <mask
-      id="map-fog-mask"
-      maskUnits="userSpaceOnUse"
-      x="0"
-      y="0"
-      width="100%"
-      height="100%"
-    >
-      {/* Everything starts hidden by the fog */}
-      <rect
-        x="0"
-        y="0"
-        width="100%"
-        height="100%"
-        fill="white"
-      />
+  <mask
+    id="map-fog-mask"
+    maskUnits="userSpaceOnUse"
+    x="0"
+    y="0"
+    width="100%"
+    height="100%"
+  >
+    {/* Everything starts hidden by the fog */}
+    <rect x="0" y="0" width="100%" height="100%" fill="white" />
 
-      {/* ------------------------------------------------------------ */}
-      {/* NODE REVEAL AREAS                                            */}
-      {/* ------------------------------------------------------------ */}
-
+    {/* All reveal shapes are blurred together, once */}
+    <g filter="url(#map-fog-blur)">
       {fogRevealNodes.map((node) => (
         <circle
           key={`fog-node-${node.id}`}
@@ -811,30 +1245,23 @@ export default function Map() {
           cy={node.y}
           r={node.radius}
           fill="black"
-          filter="url(#map-fog-blur)"
         />
       ))}
-
-      {/* ------------------------------------------------------------ */}
-      {/* ROAD REVEAL AREAS                                            */}
-      {/* ------------------------------------------------------------ */}
 
       {fogRevealPaths.map((edge) => (
         <polyline
           key={`fog-road-${edge.id}`}
-          points={edge.points
-            .map((point) => `${point.x},${point.y}`)
-            .join(" ")}
+          points={edge.points.map((p) => `${p.x},${p.y}`).join(" ")}
           fill="none"
           stroke="black"
           strokeWidth={edge.strokeWidth}
           strokeLinecap="round"
           strokeLinejoin="round"
-          filter="url(#map-fog-blur)"
         />
       ))}
-    </mask>
-  </defs>
+    </g>
+  </mask>
+</defs>
 
   {/* -------------------------------------------------------------- */}
   {/* DARK FOG                                                       */}
@@ -845,7 +1272,7 @@ export default function Map() {
     y="0"
     width="100%"
     height="100%"
-    fill="rgba(2, 5, 8, 0.94)"
+    fill="rgba(2, 5, 8, 0.7)"
     mask="url(#map-fog-mask)"
   />
 </svg>
@@ -882,7 +1309,7 @@ export default function Map() {
 
               const isCurrent = nodeId === currentNodeId;
 
-              const isVisited = visitedNodeIds.has(Number(nodeId));
+              const isVisited = visitedNodeIds.has(nodeId);
 
               const position = getNodeTopLeft(node);
 
@@ -972,12 +1399,18 @@ export default function Map() {
   }}
 /> */}
 
+
+          {/* {visibleNodeIds.size === 0 && (
+          <div className="select-none pointer-events-none absolute inset-0 flex items-center justify-center text-2xl text-white z-30">
+            Start exploring the map by visiting a node.
+          </div>
+        )} */}
         {/* ================================================================ */}
         {/* EMPTY MAP                                                        */}
         {/* ================================================================ */}
 
         {nodes.length === 0 && (
-          <div className="select-none pointer-events-none absolute inset-0 flex items-center justify-center text-sm text-white/40">
+          <div className="select-none pointer-events-none absolute inset-0 flex items-center justify-center text-sm text-white z-30">
             No map available.
           </div>
         )}

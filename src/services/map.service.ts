@@ -36,5 +36,9 @@ export const mapService = {
 
   getMapSkeleton() {
     return apiClient.get<BackendMap>(ENDPOINTS.MAP_SKELETON);
-  }
+  },
+
+  clearMap() {
+    return apiClient.delete<void>(ENDPOINTS.CLEAR_MAP);
+  },
 };
