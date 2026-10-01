@@ -11,8 +11,6 @@ import roadAtlasUrl from "@/assets/map-maker/treasure-road-tileset.png";
 
 const MAP_GRID_SIZE = 16;
 const ATLAS_SIZE = 1254;
-const FLOW_SIZE = 3;
-const FLOW_SPEED = 0.052;
 const ROAD_JOIN_OVERLAP = 1;
 
 type MapPoint = { x: number; y: number };
@@ -51,14 +49,6 @@ type RoadPiece = {
   y: number;
 };
 
-type FlowParticle = {
-  edgeId: string;
-  phase: number;
-  segments: RoadSegment[];
-  sprite: Sprite;
-  totalLength: number;
-};
-
 type EdgeContainer = {
   container: Container;
   signature: string;
@@ -67,7 +57,6 @@ type EdgeContainer = {
 type RendererState = {
   app: Application;
   edgeContainers: Map<string, EdgeContainer>;
-  flows: FlowParticle[];
   roadTextures: Record<RoadSpriteKind, Texture>;
   world: Container;
 };
@@ -333,23 +322,6 @@ function getEdgeSignature(edge: PixiRoadEdge): string {
   ].join("|");
 }
 
-function getFlowPosition(segments: RoadSegment[], distance: number): MapPoint {
-  let remaining = distance;
-  for (const segment of segments) {
-    if (remaining <= segment.length) {
-      const step = getStep(segment.direction);
-      return {
-        x: segment.start.x + MAP_GRID_SIZE / 2 + (step.x / MAP_GRID_SIZE) * remaining,
-        y: segment.start.y + MAP_GRID_SIZE / 2 + (step.y / MAP_GRID_SIZE) * remaining,
-      };
-    }
-    remaining -= segment.length;
-  }
-  const last = segments.at(-1);
-  return last
-    ? { x: last.end.x + MAP_GRID_SIZE / 2, y: last.end.y + MAP_GRID_SIZE / 2 }
-    : { x: 0, y: 0 };
-}
 
 function makeTransparentAtlas(): Promise<Texture> {
   if (atlasTexturePromise) return atlasTexturePromise;
@@ -406,7 +378,6 @@ function destroyEdgeContainer(state: RendererState, edgeId: string) {
   current.container.parent?.removeChild(current.container);
   current.container.destroy({ children: true });
   state.edgeContainers.delete(edgeId);
-  state.flows = state.flows.filter((flow) => flow.edgeId !== edgeId);
 }
 
 function createEdgeContainer(state: RendererState, edge: PixiRoadEdge) {
@@ -440,28 +411,6 @@ function createEdgeContainer(state: RendererState, edge: PixiRoadEdge) {
     if (edge.isSelected) sprite.tint = 0xffd7d7;
     container.addChild(sprite);
   });
-
-  const totalLength = segments.reduce((sum, segment) => sum + segment.length, 0);
-  if (totalLength) {
-    [0, Math.max(MAP_GRID_SIZE * 3, Math.floor(totalLength / 2))].forEach(
-      (phase) => {
-        const flowSprite = new Sprite({ texture: Texture.WHITE, roundPixels: true });
-        flowSprite.anchor.set(0.5);
-        flowSprite.eventMode = "none";
-        flowSprite.tint = edge.isSelected ? 0xfecaca : 0xfff1a8;
-        flowSprite.width = FLOW_SIZE;
-        flowSprite.height = FLOW_SIZE;
-        container.addChild(flowSprite);
-        state.flows.push({
-          edgeId: edge.id,
-          phase,
-          segments,
-          sprite: flowSprite,
-          totalLength,
-        });
-      },
-    );
-  }
 
   state.world.addChild(container);
   state.edgeContainers.set(edge.id, {
@@ -534,20 +483,9 @@ export function PixiRoadLayer({ edges, pan, zoom }: PixiRoadLayerProps) {
       const state: RendererState = {
         app,
         edgeContainers: new Map(),
-        flows: [],
         roadTextures: getRoadTextures(atlasTexture),
         world,
       };
-      const tick = () => {
-        const elapsed = performance.now() * FLOW_SPEED;
-        state.flows.forEach((flow) => {
-          const distance =
-            Math.floor((elapsed + flow.phase) / MAP_GRID_SIZE) * MAP_GRID_SIZE;
-          const point = getFlowPosition(flow.segments, distance % flow.totalLength);
-          flow.sprite.position.set(Math.round(point.x), Math.round(point.y));
-        });
-      };
-      app.ticker.add(tick);
       stateRef.current = state;
 
       const resize = () => {
@@ -559,8 +497,6 @@ export function PixiRoadLayer({ edges, pan, zoom }: PixiRoadLayerProps) {
       updateWorldTransform(state, latestRef.current.pan, latestRef.current.zoom);
       syncEdges(state, latestRef.current.edges);
 
-      // Keep the Pixi ticker callback alive without React-driven animation.
-      void tick;
     };
 
     void initialize().catch(() => {
