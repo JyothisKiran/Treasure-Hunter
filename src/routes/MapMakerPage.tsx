@@ -22,6 +22,10 @@ import {
   PixiRoadLayer,
   type PixiRoadEdge,
 } from "@/components/map-maker/PixiRoadLayer";
+// import {
+//   findLoops,
+//   getLoopLayout,
+// } from "@/components/map-maker/loopLayout";
 import type {
   BackendMap,
   BackendMapNode,
@@ -40,10 +44,21 @@ const NODE_HEIGHT = 132;
 const NODE_HALF_WIDTH = NODE_WIDTH / 2;
 const NODE_HALF_HEIGHT = NODE_HEIGHT / 2;
 const ALIGNMENT_EPSILON = 4;
-const ROUTING_LANE_GAP = 28;
+const ROUTING_LANE_GAP = 32;
 const MAP_GRID_SIZE = 16;
 const PIXEL_ROAD_TILE_SIZE = MAP_GRID_SIZE;
 const PIXEL_ROAD_HIT_WIDTH = 20;
+
+/* ---------------------------- ZOOM / VIEW SETTINGS ---------------------------- */
+const MAX_ZOOM = 2.5;
+const DEFAULT_MIN_ZOOM = 0.35; // used for small maps (never higher than this)
+const MIN_ZOOM_FLOOR = 0.02; // absolute lowest zoom, even for a huge map
+const ZOOM_OUT_MARGIN = 0.75; // allow zooming out to 75% of "whole map fits"
+const FIT_PADDING = 80; // empty space kept around the view, in screen px
+const RESET_MAX_ZOOM = 1; // "Reset view" never zooms in past 100%
+const RESET_FIT_RATIO = 0.8; // "Reset view" shows ~80% of the nodes around the centroid
+const ZOOM_BUTTON_FACTOR = 1.25; // +/- buttons zoom by this factor per click
+
 const DEFAULT_MAP: TreasureMap = {
   id: "treasure-map-1",
   name: "Untitled Expedition",
@@ -61,32 +76,9 @@ type MapPoint = { x: number; y: number };
 type RoadDirection = "up" | "right" | "down" | "left";
 const EMPTY_DRAFT: DraftNode = { type: "NODE", question: "", answer: "" };
 
-// interface SaveFilePickerOptions {
-//   suggestedName: string;
-//   types: Array<{
-//     description: string;
-//     accept: Record<string, string[]>;
-//   }>;
-// }
-
-// interface FileSystemWritableFileStreamLike {
-//   write(data: string): Promise<void>;
-//   close(): Promise<void>;
-// }
-
-// interface FileSystemFileHandleLike {
-//   createWritable(): Promise<FileSystemWritableFileStreamLike>;
-// }
-
-// type SaveFilePicker = (
-//   options: SaveFilePickerOptions,
-// ) => Promise<FileSystemFileHandleLike>;
-
-// type WindowWithSaveFilePicker = Window & {
-//   showSaveFilePicker?: SaveFilePicker;
-// };
-
-
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max);
+}
 
 function snapToGrid(value: number) {
   return Math.round(value / MAP_GRID_SIZE) * MAP_GRID_SIZE;
@@ -107,29 +99,34 @@ function nextPosition(index: number) {
   });
 }
 
-function findCycleNodes(nodes: MapNode[]): Set<string> {
-  const visiting = new Set<string>();
-  const visited = new Set<string>();
-  const cycleNodes = new Set<string>();
-  const stack: string[] = [];
-  const visit = (nodeId: string) => {
-    if (visiting.has(nodeId)) {
-      const cycleStart = stack.indexOf(nodeId);
-      stack.slice(cycleStart).forEach((id) => cycleNodes.add(id));
-      return;
-    }
-    if (visited.has(nodeId)) return;
-    visiting.add(nodeId);
-    stack.push(nodeId);
-    nodes.find((node) => node.id === nodeId)?.children.forEach(visit);
-    stack.pop();
-    visiting.delete(nodeId);
-    visited.add(nodeId);
-  };
-  nodes.forEach((node) => visit(node.id));
-  return cycleNodes;
+/** Nodes that have a real, finite position. */
+function getPlacedNodes(nodes: MapNode[]) {
+  return nodes.filter((node) => Number.isFinite(node.x) && Number.isFinite(node.y));
 }
 
+/**
+ * Lowest zoom allowed for this map: the zoom at which the WHOLE map fits the
+ * screen, times ZOOM_OUT_MARGIN. Small maps keep the old 35% limit; a map with
+ * 100-150 nodes can zoom out much further (down to MIN_ZOOM_FLOOR).
+ */
+function getMinZoom(
+  nodes: MapNode[],
+  viewportWidth: number,
+  viewportHeight: number,
+) {
+  const placed = getPlacedNodes(nodes);
+  if (!placed.length || viewportWidth <= 0 || viewportHeight <= 0)
+    return DEFAULT_MIN_ZOOM;
+  const minX = Math.min(...placed.map((node) => node.x - NODE_HALF_WIDTH));
+  const maxX = Math.max(...placed.map((node) => node.x + NODE_HALF_WIDTH));
+  const minY = Math.min(...placed.map((node) => node.y - NODE_HALF_HEIGHT));
+  const maxY = Math.max(...placed.map((node) => node.y + NODE_HALF_HEIGHT));
+  const fitZoom = Math.min(
+    (viewportWidth - FIT_PADDING * 2) / Math.max(maxX - minX, 1),
+    (viewportHeight - FIT_PADDING * 2) / Math.max(maxY - minY, 1),
+  );
+  return clamp(fitZoom * ZOOM_OUT_MARGIN, MIN_ZOOM_FLOOR, DEFAULT_MIN_ZOOM);
+}
 
 function canAddChild(node: MapNode): boolean {
   const childLimit = node.type === "JUNCTION" ? 2 : 1;
@@ -143,6 +140,31 @@ function getPortOffset(index: number, count: number, maxOffset: number) {
 
 function getLaneOffset(index: number, count: number) {
   return (index - (count - 1) / 2) * ROUTING_LANE_GAP;
+}
+
+function getParallelEdges(
+  nodes: MapNode[],
+  sourceId: string,
+  targetId: string,
+) {
+  return nodes
+    .flatMap((source) =>
+      source.children
+        .filter(
+          (childId) =>
+            (source.id === sourceId && childId === targetId) ||
+            (source.id === targetId && childId === sourceId),
+        )
+        .map((childId) => ({
+          sourceId: source.id,
+          targetId: childId,
+        })),
+    )
+    .sort((first, second) => {
+      const firstKey = `${first.sourceId}:${first.targetId}`;
+      const secondKey = `${second.sourceId}:${second.targetId}`;
+      return firstKey.localeCompare(secondKey);
+    });
 }
 
 function getRouteOrientation(source: MapNode, target: MapNode) {
@@ -215,37 +237,87 @@ function getEdgeRouting(
     source,
     getEndpointSide(source, target, "source"),
   );
+
   const targetConnections = getSideConnections(
     nodes,
     target,
     getEndpointSide(source, target, "target"),
   );
+
   const isCurrentSource = (edge: ConnectedEdge) =>
     edge.source.id === source.id &&
     edge.target.id === target.id &&
     edge.endpoint === "source";
+
   const isCurrentTarget = (edge: ConnectedEdge) =>
     edge.source.id === source.id &&
     edge.target.id === target.id &&
     edge.endpoint === "target";
+
   const sourceIndex = sourceConnections.findIndex(isCurrentSource);
   const targetIndex = targetConnections.findIndex(isCurrentTarget);
-  const sourcePortOffset = getPortOffset(
+
+  const maxPortOffset = Math.min(
+    NODE_HALF_WIDTH - 18,
+    NODE_HALF_HEIGHT - 18,
+  );
+
+  const normalSourcePortOffset = getPortOffset(
     sourceIndex,
     sourceConnections.length,
-    Math.min(NODE_HALF_WIDTH - 18, NODE_HALF_HEIGHT - 18),
+    maxPortOffset,
   );
-  const targetPortOffset = getPortOffset(
+
+  const normalTargetPortOffset = getPortOffset(
     targetIndex,
     targetConnections.length,
-    Math.min(NODE_HALF_WIDTH - 18, NODE_HALF_HEIGHT - 18),
+    maxPortOffset,
   );
-  const laneOffset =
+
+  /*
+   * Treat A -> B and B -> A as parallel visual edges.
+   *
+   * Without this, each edge sees only one connection on its side and
+   * therefore both receive port offset 0 and lane offset 0.
+   */
+  const parallelEdges = getParallelEdges(nodes, source.id, target.id);
+  const parallelIndex = parallelEdges.findIndex(
+    (edge) =>
+      edge.sourceId === source.id && edge.targetId === target.id,
+  );
+
+  const hasParallelEdges = parallelEdges.length > 1;
+
+  const parallelPortOffset = hasParallelEdges
+    ? getPortOffset(
+        parallelIndex,
+        parallelEdges.length,
+        Math.min(16, maxPortOffset),
+      )
+    : 0;
+
+  const sourcePortOffset = hasParallelEdges
+    ? parallelPortOffset
+    : normalSourcePortOffset;
+
+  const targetPortOffset = hasParallelEdges
+    ? parallelPortOffset
+    : normalTargetPortOffset;
+
+  const normalLaneOffset =
     sourceConnections.length > 1
       ? getLaneOffset(sourceIndex, sourceConnections.length)
       : getLaneOffset(targetIndex, targetConnections.length);
 
-  return { sourcePortOffset, targetPortOffset, laneOffset };
+  const laneOffset = hasParallelEdges
+    ? getLaneOffset(parallelIndex, parallelEdges.length)
+    : normalLaneOffset;
+
+  return {
+    sourcePortOffset,
+    targetPortOffset,
+    laneOffset,
+  };
 }
 
 function normalizeRoutePoints(points: MapPoint[]) {
@@ -265,26 +337,45 @@ function getNodeConnectionPoints(
 ): MapPoint[] {
   const deltaX = target.x - source.x;
   const deltaY = target.y - source.y;
+
   const isVerticallyAligned = Math.abs(deltaX) <= ALIGNMENT_EPSILON;
   const isHorizontallyAligned = Math.abs(deltaY) <= ALIGNMENT_EPSILON;
   const isVerticalRoute = getRouteOrientation(source, target) === "vertical";
 
   if (isVerticalRoute) {
     const direction = deltaY >= 0 ? 1 : -1;
+
     const sourceX = source.x + routing.sourcePortOffset;
     const targetX = target.x + routing.targetPortOffset;
+
     const sourceY = source.y + direction * NODE_HALF_HEIGHT;
     const targetY = target.y - direction * NODE_HALF_HEIGHT;
-    if (isVerticallyAligned && Math.abs(sourceX - targetX) <= ALIGNMENT_EPSILON)
+
+    if (
+      isVerticallyAligned &&
+      Math.abs(sourceX - targetX) <= ALIGNMENT_EPSILON &&
+      Math.abs(routing.laneOffset) <= ALIGNMENT_EPSILON
+    ) {
       return normalizeRoutePoints([
         { x: sourceX, y: sourceY },
         { x: targetX, y: targetY },
       ]);
+    }
+
     const midpoint = (sourceY + targetY) / 2;
-    const maxLaneOffset = Math.max(0, Math.abs(targetY - sourceY) / 2 - 12);
+
+    const maxLaneOffset = Math.max(
+      0,
+      Math.abs(targetY - sourceY) / 2 - 12,
+    );
+
     const bendY =
       midpoint +
-      Math.max(-maxLaneOffset, Math.min(maxLaneOffset, routing.laneOffset));
+      Math.max(
+        -maxLaneOffset,
+        Math.min(maxLaneOffset, routing.laneOffset),
+      );
+
     return normalizeRoutePoints([
       { x: sourceX, y: sourceY },
       { x: sourceX, y: bendY },
@@ -294,20 +385,37 @@ function getNodeConnectionPoints(
   }
 
   const direction = deltaX >= 0 ? 1 : -1;
+
   const sourceX = source.x + direction * NODE_HALF_WIDTH;
   const targetX = target.x - direction * NODE_HALF_WIDTH;
+
   const sourceY = source.y + routing.sourcePortOffset;
   const targetY = target.y + routing.targetPortOffset;
-  if (isHorizontallyAligned && Math.abs(sourceY - targetY) <= ALIGNMENT_EPSILON)
+
+  if (
+    isHorizontallyAligned &&
+    Math.abs(sourceY - targetY) <= ALIGNMENT_EPSILON &&
+    Math.abs(routing.laneOffset) <= ALIGNMENT_EPSILON
+  ) {
     return normalizeRoutePoints([
       { x: sourceX, y: sourceY },
       { x: targetX, y: targetY },
     ]);
+  }
+
   const midpoint = (sourceX + targetX) / 2;
-  const maxLaneOffset = Math.max(0, Math.abs(targetX - sourceX) / 2 - 12);
+
+  const maxLaneOffset = Math.max(
+    0,
+    Math.abs(targetX - sourceX) / 2 - 12,
+  );
+
   const bendX =
     midpoint +
-    Math.max(-maxLaneOffset, Math.min(maxLaneOffset, routing.laneOffset));
+    Math.max(
+      -maxLaneOffset,
+      Math.min(maxLaneOffset, routing.laneOffset),
+    );
 
   return normalizeRoutePoints([
     { x: sourceX, y: sourceY },
@@ -406,9 +514,7 @@ function unwrapCreatedNode(response: CreateMapNodeResponse): BackendMapNode {
   return "id" in response ? response : response.data;
 }
 
-function mapFromBackendMap(
-  backendMap: BackendMap,
-): TreasureMap {
+function mapFromBackendMap(backendMap: BackendMap): TreasureMap {
   const nodeIds = new Set(backendMap.nodes.map((node) => node.id));
   const childrenByParent = new Map<number, Set<number>>(
     backendMap.nodes.map((node) => [
@@ -464,7 +570,7 @@ function mapFromBackendMap(
         isHead: node.is_head,
         isCheckpoint: node.is_checkpoint,
         createdAt: node.created_at,
-        position: { x: node.x, y: node.y }
+        position: { x: node.x, y: node.y },
       },
     };
   });
@@ -472,13 +578,11 @@ function mapFromBackendMap(
   return {
     id: String(backendMap.team_state?.id ?? "server-map"),
     name: backendMap.team_state?.name ?? "Team Map",
-    nodes: (nodes),
+    nodes: nodes,
   };
 }
 
-function mapFromBackendMaps(
-  backendMaps: BackendMap,
-): TreasureMap {
+function mapFromBackendMaps(backendMaps: BackendMap): TreasureMap {
   return backendMaps.nodes.length
     ? mapFromBackendMap(backendMaps)
     : DEFAULT_MAP;
@@ -547,7 +651,6 @@ export default function MapMakerPage() {
       await mapService.clearMap();
     },
   });
-  // const fileInputRef = useRef<HTMLInputElement>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{
     kind: "pan" | "node";
@@ -566,10 +669,12 @@ export default function MapMakerPage() {
     sourceId: string;
     targetId: string;
   } | null>(null);
-  const cycleNodes = new Set([
-    ...findCycleNodes(map.nodes),
-    ...map.nodes.filter((node) => node.isCycle).map((node) => node.id),
-  ]);
+  // "LOOP" label: nodes that are part of a loop (found by findLoops) plus any
+  // the server already flagged as cycle nodes.
+  // const cycleNodes = new Set([
+  //   ...findLoops(map.nodes).flat(),
+  //   ...map.nodes.filter((node) => node.isCycle).map((node) => node.id),
+  // ]);
   const roadEdges = getMapRoadEdges(map.nodes, selectedEdge);
 
   useEffect(() => {
@@ -577,9 +682,7 @@ export default function MapMakerPage() {
 
     const syncMap = window.setTimeout(() => {
       setMap((current) => {
-        const syncedMap = mapFromBackendMaps(
-          backendMaps,
-        );
+        const syncedMap = mapFromBackendMaps(backendMaps);
         return {
           ...syncedMap,
           name: current.name || syncedMap.name,
@@ -605,8 +708,18 @@ export default function MapMakerPage() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
+  /** Lowest zoom for the current map size and screen size. */
+  const getCurrentMinZoom = () => {
+    const viewport = viewportRef.current;
+    return getMinZoom(
+      map.nodes,
+      viewport?.clientWidth ?? 0,
+      viewport?.clientHeight ?? 0,
+    );
+  };
+
   const setZoomAt = (nextZoom: number, clientX?: number, clientY?: number) => {
-    const boundedZoom = Math.min(2.5, Math.max(0.35, nextZoom));
+    const boundedZoom = clamp(nextZoom, getCurrentMinZoom(), MAX_ZOOM);
     if (
       clientX === undefined ||
       clientY === undefined ||
@@ -622,6 +735,21 @@ export default function MapMakerPage() {
       y: clientY - bounds.top - (clientY - bounds.top - current.y) * factor,
     }));
     setZoom(boundedZoom);
+  };
+
+  /** Zoom buttons: multiply the zoom and keep the screen centre fixed. */
+  const zoomByFactor = (factor: number) => {
+    const viewport = viewportRef.current;
+    if (!viewport) {
+      setZoomAt(zoom * factor);
+      return;
+    }
+    const bounds = viewport.getBoundingClientRect();
+    setZoomAt(
+      zoom * factor,
+      bounds.left + bounds.width / 2,
+      bounds.top + bounds.height / 2,
+    );
   };
 
   const beginCanvasInteraction = (event: ReactPointerEvent<Element>) => {
@@ -674,6 +802,8 @@ export default function MapMakerPage() {
         pinchRef.current.zoom *
           (Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y) /
             pinchRef.current.distance),
+        (points[0].x + points[1].x) / 2,
+        (points[0].y + points[1].y) / 2,
       );
       return;
     }
@@ -851,7 +981,7 @@ export default function MapMakerPage() {
       const basePosition = parentNode
         ? getNodePlacementNearParent(parentNode, parentNode.children.length)
         : nextPosition(map.nodes.length);
-      
+
       const question = draft.question.trim();
       const answer = draft.answer.trim();
 
@@ -881,7 +1011,6 @@ export default function MapMakerPage() {
       }
       return;
     }
-    setDialogOpen(false);
   };
 
   const removeNodeLocally = (nodeId: string) => {
@@ -962,6 +1091,42 @@ export default function MapMakerPage() {
     }
   };
 
+  /**
+   * Arrange loops in a circle. `focusNodeId` limits it to the loop containing
+   * that node; without it every loop is arranged. New positions are applied
+   * locally AND saved to the server (otherwise the refetch would undo them).
+   * Returns true when something moved.
+   */
+  // const applyLoopLayout = async (nodes: MapNode[], focusNodeId?: string) => {
+  //   const positions = getLoopLayout(nodes, focusNodeId);
+  //   if (positions.size === 0) return false;
+
+  //   setMap((current) => ({
+  //     ...current,
+  //     nodes: current.nodes.map((node) => {
+  //       const position = positions.get(node.id);
+  //       return position ? { ...node, ...position } : node;
+  //     }),
+  //   }));
+
+  //   const results = await Promise.allSettled(
+  //     [...positions].map(([nodeId, position]) => {
+  //       const backendId = getBackendId(nodeId);
+  //       return backendId === null
+  //         ? Promise.resolve()
+  //         : mapService.updateNode(backendId, { position });
+  //     }),
+  //   );
+  //   if (results.some((result) => result.status === "rejected"))
+  //     toast("Some node positions could not be saved");
+  //   return true;
+  // };
+
+  // const arrangeLoops = async () => {
+  //   const moved = await applyLoopLayout(map.nodes);
+  //   // toast(moved ? "Loops arranged" : "No loops to arrange");
+  // };
+
   const connectNodes = async (targetId: string) => {
     if (!connectionSourceId) return;
     const source = map.nodes.find((node) => node.id === connectionSourceId);
@@ -996,15 +1161,36 @@ export default function MapMakerPage() {
       setMap((current) => ({
         ...current,
         nodes: current.nodes.map((node) =>
-            node.id === connectionSourceId
-              ? { ...node, children: [...node.children, targetId] }
-              : node,
+          node.id === connectionSourceId
+            ? { ...node, children: [...node.children, targetId] }
+            : node,
         ),
       }));
+
+      // If this new link closed a loop, snap that loop into a circle.
+      // const nodesAfterLink = map.nodes.map((node) =>
+      //   node.id === source.id
+      //     ? { ...node, children: [...node.children, targetId] }
+      //     : node,
+      // );
+      // const loopsBefore = findLoops(map.nodes);
+      // const loopsAfter = findLoops(nodesAfterLink);
+
+      // const createdLoop =
+      //   loopsAfter.length > loopsBefore.length;
+
+      // const loopArranged = createdLoop
+      //   ? await applyLoopLayout(nodesAfterLink, source.id)
+      //   : false;
+
       void queryClient.invalidateQueries({
         queryKey: MAP_MAKER_MAPS_QUERY_KEY,
       });
-      toast("Nodes connected");
+      // toast(
+      //   loopArranged
+      //     ? "Nodes connected, loop arranged"
+      //     : "Nodes connected",
+      // );
     } catch {
       toast("Could not create that connection. Your graph was not changed.");
     } finally {
@@ -1047,125 +1233,77 @@ export default function MapMakerPage() {
     setSelectedEdge(null);
   };
 
-  // const exportMap = async () => {
-  //   const filename = `${map.name.toLowerCase().replace(/[^a-z0-9]+/g, "-") || "treasure-map"}.json`;
-  //   const content = JSON.stringify(map, null, 2);
-  //   const saveFilePicker = (window as WindowWithSaveFilePicker)
-  //     .showSaveFilePicker;
-
-  //   if (saveFilePicker) {
-  //     try {
-  //       const fileHandle = await saveFilePicker({
-  //         suggestedName: filename,
-  //         types: [
-  //           {
-  //             description: "JSON files",
-  //             accept: { "application/json": [".json"] },
-  //           },
-  //         ],
-  //       });
-  //       const writable = await fileHandle.createWritable();
-  //       await writable.write(content);
-  //       await writable.close();
-  //       toast("Map JSON saved successfully");
-  //     } catch (error: unknown) {
-  //       if (error instanceof DOMException && error.name === "AbortError")
-  //         return;
-  //       toast("Failed to save map JSON");
-  //     }
-  //     return;
-  //   }
-
-  //   const url = URL.createObjectURL(
-  //     new Blob([content], { type: "application/json" }),
-  //   );
-  //   const link = document.createElement("a");
-  //   link.href = url;
-  //   link.download = filename;
-  //   try {
-  //     document.body.appendChild(link);
-  //     link.click();
-  //     toast("Map JSON download started");
-  //   } catch {
-  //     toast("Failed to save map JSON");
-  //   } finally {
-  //     link.remove();
-  //     URL.revokeObjectURL(url);
-  //   }
-  // };
-
-  // const importMap = async (file: File) => {
-  //   try {
-  //     const imported = parseMap(JSON.parse(await file.text()));
-  //     if (!imported) throw new Error("Invalid map");
-  //     setMap({ ...imported, nodes: layoutLoops(imported.nodes) });
-  //     setSelectedNodeId(null);
-  //     toast("Map JSON imported");
-  //   } catch {
-  //     toast("That file is not a valid treasure map");
-  //   }
-  // };
-
-  const handleDeleteModalConfirmation = async() => {
+  const handleDeleteModalConfirmation = async () => {
     try {
       await clearMapMutation.mutateAsync();
       void queryClient.invalidateQueries({
-          queryKey: MAP_MAKER_MAPS_QUERY_KEY,
-        });
-        setMap(DEFAULT_MAP);
+        queryKey: MAP_MAKER_MAPS_QUERY_KEY,
+      });
+      setMap(DEFAULT_MAP);
       setSelectedNodeId(null);
       setSelectedEdge(null);
       setConnectionSourceId(null);
+      setDeleteConfirmationOpen(false);
       toast("Map cleared");
     } catch (error) {
       toast("Error Occured! Could not clear the map.");
       console.error("Error clearing the map:", error);
     }
-    
-  }
+  };
 
-  const resetMap = async() => {
+  const resetMap = async () => {
     setDeleteConfirmationOpen(true);
   };
 
+  /**
+   * RESET VIEW: jump to the centroid (average position) of all nodes and
+   * junctions, at a zoom where ~80% of the nodes nearest the centroid are
+   * visible. Far-away outliers don't force the view to zoom way out.
+   */
   const resetView = () => {
     const viewport = viewportRef.current;
-    if (!viewport || !map.nodes.length) {
+    const placed = getPlacedNodes(map.nodes);
+    if (!viewport || !placed.length) {
       setZoom(1);
       setPan({ x: 0, y: 0 });
       return;
     }
-    const padding = 80;
-    const minX = Math.min(...map.nodes.map((node) => node.x - NODE_HALF_WIDTH));
-    const maxX = Math.max(...map.nodes.map((node) => node.x + NODE_HALF_WIDTH));
-    const minY = Math.min(
-      ...map.nodes.map((node) => node.y - NODE_HALF_HEIGHT),
-    );
-    const maxY = Math.max(
-      ...map.nodes.map((node) => node.y + NODE_HALF_HEIGHT),
-    );
-    const graphWidth = Math.max(maxX - minX, 1);
-    const graphHeight = Math.max(maxY - minY, 1);
+
     const viewportWidth = viewport.clientWidth;
     const viewportHeight = viewport.clientHeight;
-    const nextZoom = Math.min(
-      2.5,
-      Math.max(
-        0.35,
-        Math.min(
-          (viewportWidth - padding * 2) / graphWidth,
-          (viewportHeight - padding * 2) / graphHeight,
+
+    const centroidX = placed.reduce((sum, node) => sum + node.x, 0) / placed.length;
+    const centroidY = placed.reduce((sum, node) => sum + node.y, 0) / placed.length;
+
+    // For every node: how much zoom-out is needed to fit it around the centroid.
+    const halfWidth = Math.max(viewportWidth / 2 - FIT_PADDING, 1);
+    const halfHeight = Math.max(viewportHeight / 2 - FIT_PADDING, 1);
+    const ratios = placed
+      .map((node) =>
+        Math.max(
+          (Math.abs(node.x - centroidX) + NODE_HALF_WIDTH) / halfWidth,
+          (Math.abs(node.y - centroidY) + NODE_HALF_HEIGHT) / halfHeight,
         ),
-      ),
+      )
+      .sort((a, b) => a - b);
+    const fitRatio =
+      ratios[Math.min(ratios.length - 1, Math.ceil(ratios.length * RESET_FIT_RATIO) - 1)];
+
+    const nextZoom = clamp(
+      1 / fitRatio,
+      getMinZoom(map.nodes, viewportWidth, viewportHeight),
+      RESET_MAX_ZOOM,
     );
-    const graphCenterX = (minX + maxX) / 2;
-    const graphCenterY = (minY + maxY) / 2;
     setZoom(nextZoom);
     setPan({
-      x: viewportWidth / 2 - graphCenterX * nextZoom,
-      y: viewportHeight / 2 - graphCenterY * nextZoom,
+      x: viewportWidth / 2 - centroidX * nextZoom,
+      y: viewportHeight / 2 - centroidY * nextZoom,
     });
   };
+
+  // The 32px background grid turns into a solid smear when zoomed far out.
+  const gridSize = 32 * zoom;
+  const showGrid = gridSize >= 6;
 
   return (
     <main className="map-maker-workspace retro flex h-dvh min-h-0 flex-col overflow-hidden bg-slate-950/90 text-left text-xs text-slate-100">
@@ -1208,10 +1346,11 @@ export default function MapMakerPage() {
             onWheel={handleCanvasWheel}
             ref={viewportRef}
             style={{
-              backgroundImage:
-                "linear-gradient(rgba(34,211,238,0.09) 1px, transparent 1px), linear-gradient(90deg, rgba(34,211,238,0.09) 1px, transparent 1px)",
-              backgroundPosition: `${pan.x % (32 * zoom)}px ${pan.y % (32 * zoom)}px`,
-              backgroundSize: `${32 * zoom}px ${32 * zoom}px`,
+              backgroundImage: showGrid
+                ? "linear-gradient(rgba(34,211,238,0.09) 1px, transparent 1px), linear-gradient(90deg, rgba(34,211,238,0.09) 1px, transparent 1px)"
+                : "none",
+              backgroundPosition: `${pan.x % gridSize}px ${pan.y % gridSize}px`,
+              backgroundSize: `${gridSize}px ${gridSize}px`,
               touchAction: "none",
             }}
           >
@@ -1256,7 +1395,8 @@ export default function MapMakerPage() {
                       beginCanvasInteraction(event);
                     }}
                     stroke="transparent"
-                    strokeWidth={PIXEL_ROAD_HIT_WIDTH}
+                    // Keep roads clickable when zoomed far out (>= ~10 screen px).
+                    strokeWidth={Math.max(PIXEL_ROAD_HIT_WIDTH, 10 / zoom)}
                     style={{ pointerEvents: "stroke", cursor: "pointer" }}
                     key={edge.id}
                   />
@@ -1329,7 +1469,7 @@ export default function MapMakerPage() {
                           });
                         }
                       }}
-                      onPointerUp={async(event) => {
+                      onPointerUp={async (event) => {
                         event.stopPropagation();
                         const drag = dragRef.current;
                         if (
@@ -1340,22 +1480,26 @@ export default function MapMakerPage() {
                           if (drag.moved) {
                             setSelectedNodeId(node.id);
                           }
-                          if (drag.originX !==  node.x || drag.originY !== node.y){
-                              try {
-                                await updateNodeMutation.mutateAsync({
+                          if (
+                            drag.originX !== node.x ||
+                            drag.originY !== node.y
+                          ) {
+                            try {
+                              await updateNodeMutation.mutateAsync({
                                 id: Number(node.id),
                                 data: {
-                                  position :{
-                                      x: node.x,
-                                      y: node.y
-                                  }
+                                  position: {
+                                    x: node.x,
+                                    y: node.y,
+                                  },
                                 },
                               });
-                                
-                              } catch (error) {
-                                console.error('An error occured', error)
-                                toast("Could not update the node position. Your graph was not changed.");
-                              }
+                            } catch (error) {
+                              console.error("An error occured", error);
+                              toast(
+                                "Could not update the node position. Your graph was not changed.",
+                              );
+                            }
                           }
                           dragRef.current = null;
                           if (
@@ -1386,7 +1530,7 @@ export default function MapMakerPage() {
                         <div className="block w-full text-left">
                           <span className="block text-[8px] text-amber-300">
                             {node.type}
-                            {cycleNodes.has(node.id) && " / LOOP"}
+                            {/* {cycleNodes.has(node.id) && " / LOOP"} */}
                           </span>
                           <span className="mt-1 block truncate text-[10px]">
                             {node.question || node.id}
@@ -1470,7 +1614,7 @@ export default function MapMakerPage() {
               <button
                 aria-label="Zoom out"
                 className="flex size-7 items-center justify-center border border-cyan-400 text-cyan-200"
-                onClick={() => setZoomAt(zoom - 0.15)}
+                onClick={() => zoomByFactor(1 / ZOOM_BUTTON_FACTOR)}
                 type="button"
               >
                 <Minus className="size-3.5" />
@@ -1481,7 +1625,7 @@ export default function MapMakerPage() {
               <button
                 aria-label="Zoom in"
                 className="flex size-7 items-center justify-center border border-cyan-400 text-cyan-200"
-                onClick={() => setZoomAt(zoom + 0.15)}
+                onClick={() => zoomByFactor(ZOOM_BUTTON_FACTOR)}
                 type="button"
               >
                 <Plus className="size-3.5" />
@@ -1519,6 +1663,14 @@ export default function MapMakerPage() {
                       : "REMOVE LINK"}
                   </Button>
                 )}
+                {/* <Button
+                  onClick={() => void arrangeLoops()}
+                  size="compact"
+                  type="button"
+                  variant="outline"
+                >
+                  ARRANGE LOOPS
+                </Button> */}
                 <Button
                   onClick={resetMap}
                   size="compact"
@@ -1686,22 +1838,19 @@ export default function MapMakerPage() {
                   CANCEL
                 </Button>
                 <Button
-                  disabled={
-                    clearMapMutation.isPending
-                  }
+                  disabled={clearMapMutation.isPending}
                   onClick={() => handleDeleteModalConfirmation()}
                   size="compact"
                   type="button"
                   variant="destructive"
                 >
-                  {clearMapMutation.isPending
-                    ? "DELETING..."
-                        : "DELETE"}
+                  {clearMapMutation.isPending ? "DELETING..." : "DELETE"}
                 </Button>
               </div>
             </div>
           </div>
-        </div>)}
+        </div>
+      )}
     </main>
   );
 }
